@@ -38,12 +38,15 @@ info:
 
     ## Rate limits
 
+    All endpoints are rate-limited **per organization**. Every API key in your
+    organization shares the same quota.
+
     | Scope | Limit |
     |-------|-------|
-    | Per-org, all endpoints | 100 requests / minute |
-    | `POST /tables/{tableId}/rows` | 10 requests / minute |
+    | Per organization, all endpoints | **100 requests / minute** |
+    | Per organization, `POST /tables/{tableId}/rows` | **10 requests / minute** |
 
-    Rate limit status is returned in response headers:
+    Every response includes rate limit headers so you can track usage:
     `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
 
     ## Errors

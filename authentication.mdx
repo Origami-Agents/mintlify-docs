@@ -54,15 +54,21 @@ Every request must include this header. Requests without a valid key return `401
 
 ## Rate limits
 
-All endpoints are rate-limited per organization:
+All endpoints are rate-limited **per organization**. Every API key in your organization
+shares the same quota.
 
 | Scope | Limit |
 |-------|-------|
-| All endpoints | 100 requests / minute |
-| `POST /tables/{tableId}/rows` | 10 requests / minute |
+| Per organization, all endpoints | **100 requests / minute** |
+| Per organization, `POST /tables/{tableId}/rows` | **10 requests / minute** |
 
-When rate-limited, the API returns `429 Too Many Requests` with headers indicating
-when you can retry:
+<Info>
+  Rate limits use a sliding window. If you hit the limit, wait for the window to
+  reset rather than retrying immediately.
+</Info>
+
+When rate-limited, the API returns `429 Too Many Requests`. Every response includes
+headers so you can track your usage proactively:
 
 | Header | Description |
 |--------|-------------|
