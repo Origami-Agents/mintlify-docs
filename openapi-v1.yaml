@@ -1,0 +1,742 @@
+openapi: 3.1.0
+info:
+  title: Origami API
+  version: "1.0"
+  description: |
+    The Origami API lets you enrich company and people data programmatically.
+
+    ## Quick start
+
+    1. Create an API key in **Settings → API Keys**
+    2. List your tables to find the one you want to enrich into
+    3. POST rows with your raw data — Origami enriches them automatically
+    4. Poll the batch until it completes, then read the enriched results
+
+    ```bash
+    # 1. List tables
+    curl https://app.origami.chat/api/v1/tables \
+      -H "Authorization: Bearer og_live_YOUR_KEY"
+
+    # 2. Insert rows
+    curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
+      -H "Authorization: Bearer og_live_YOUR_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"rows": [{"Company Name": "Acme Corp", "Website": "acme.com"}]}'
+
+    # 3. Poll batch
+    curl https://app.origami.chat/api/v1/batches/BATCH_ID \
+      -H "Authorization: Bearer og_live_YOUR_KEY"
+    ```
+
+    ## Async model
+
+    All write endpoints are **asynchronous**. A `POST` returns a `batchId` immediately.
+    Poll `GET /batches/{batchId}` to check progress and retrieve enriched results once complete.
+
+    Callers who want synchronous behavior can poll in a tight loop.
+    Callers who want webhook-like behavior can poll on a schedule from their server.
+
+    ## Rate limits
+
+    | Scope | Limit |
+    |-------|-------|
+    | Per-org, all endpoints | 100 requests / minute |
+    | `POST /tables/{tableId}/rows` | 10 requests / minute |
+
+    Rate limit status is returned in response headers:
+    `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+
+    ## Errors
+
+    All errors follow a consistent format:
+
+    ```json
+    {
+      "error": "Human-readable error message",
+      "code": "MACHINE_READABLE_CODE"
+    }
+    ```
+
+    Some errors include additional context fields like `field`, `fields`, `hint`, `current`, `limit`, or `requested`.
+
+  contact:
+    name: Origami Support
+    url: https://origami.chat
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://app.origami.chat/api/v1
+    description: Production
+
+security:
+  - apiKey: []
+
+tags:
+  - name: Tables
+    description: List tables and read row data.
+  - name: Rows
+    description: Insert rows and trigger enrichment.
+  - name: Batches
+    description: Poll async batch progress and retrieve results.
+  - name: Credits
+    description: Check your organization's credit balance.
+
+paths:
+  /tables:
+    get:
+      operationId: listTables
+      summary: List tables
+      description: |
+        Returns all tables in the organization with column metadata.
+        The API key scopes to the org — no workspace ID needed.
+
+        The typical workflow is: list tables → find the one you want by name → note its
+        input columns → use the `tableId` and column names/slugs in `POST /tables/{tableId}/rows`.
+      tags: [Tables]
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: Tables retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tables]
+                properties:
+                  tables:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Table"
+              example:
+                tables:
+                  - id: "d290f1ee-6c54-4b01-90e6-d701748f0851"
+                    name: "Series A SaaS Companies"
+                    workspaceId: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                    workspaceName: "Outbound Q2"
+                    rowCount: 150
+                    columns:
+                      - name: "Company Name"
+                        slug: "company-name"
+                        kind: "input"
+                      - name: "Website"
+                        slug: "website"
+                        kind: "input"
+                      - name: "CEO Email"
+                        slug: "ceo-email"
+                        kind: "enrichment"
+                        autoTrigger: true
+                      - name: "Quality Score"
+                        slug: "quality-score"
+                        kind: "score"
+                    createdAt: "2025-06-01T12:00:00Z"
+                    updatedAt: "2025-06-15T09:30:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /tables/{tableId}/rows:
+    get:
+      operationId: getTableRows
+      summary: Read table rows
+      description: |
+        Read all rows in a table with pagination, filtering, and sorting.
+
+        Rows are returned as flat objects with column names as keys.
+        Cells with no value or in an errored state are omitted.
+
+        Supports CSV export via the `format` query parameter.
+      tags: [Tables]
+      parameters:
+        - $ref: "#/components/parameters/tableId"
+        - $ref: "#/components/parameters/page"
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 500
+          description: Number of rows per page (max 500).
+        - name: filters
+          in: query
+          schema:
+            type: string
+          description: |
+            JSON-encoded filter array. Each filter object specifies a column slug, operator, and value.
+          example: '[{"column":"website","op":"is_not_empty"}]'
+        - name: sort
+          in: query
+          schema:
+            type: string
+          description: |
+            JSON-encoded sort specification.
+          example: '[{"column":"company-name","direction":"asc"}]'
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+          description: Response format. Use `csv` for spreadsheet-compatible export.
+      responses:
+        "200":
+          description: Rows retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RowsResponse"
+              example:
+                rows:
+                  - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    Company Name: "Acme Corp"
+                    Website: "acme.com"
+                    CEO Email: "ceo@acme.com"
+                total: 1234
+                page: 0
+                pageSize: 50
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TableNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+    post:
+      operationId: insertRows
+      summary: Insert rows
+      description: |
+        Insert rows into an existing table. Returns a batch ID immediately — poll
+        `GET /batches/{batchId}` for enrichment progress and results.
+
+        **Column matching:** Field names in each row object are matched to existing table columns
+        by `slug` first (exact match), then by `name` (case-insensitive, trimmed).
+        Use `GET /tables` to discover available column names and slugs.
+
+        **Enrichment:** By default (`run: true`), all auto-trigger enrichment columns run
+        immediately after insertion. Set `run: false` to insert data without triggering enrichment.
+
+        **Deduplication & exclusion lists** apply automatically — the same table-level rules
+        from the UI are enforced. Duplicate or excluded rows are inserted but may not enrich.
+
+        **Limits:**
+        - Maximum **100 rows** per request.
+        - Free-plan tables are capped at **30 rows** total.
+      tags: [Rows]
+      parameters:
+        - $ref: "#/components/parameters/tableId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertRowsRequest"
+            examples:
+              basic:
+                summary: Insert two companies
+                value:
+                  rows:
+                    - Company Name: "Acme Corp"
+                      Website: "acme.com"
+                    - Company Name: "Beta Inc"
+                      Website: "beta.io"
+              withoutEnrichment:
+                summary: Insert without triggering enrichment
+                value:
+                  rows:
+                    - Company Name: "Gamma LLC"
+                      Website: "gamma.dev"
+                  run: false
+              usingSlugs:
+                summary: Insert using column slugs (preferred for stability)
+                value:
+                  rows:
+                    - company-name: "Delta Co"
+                      website: "delta.io"
+      responses:
+        "201":
+          description: Rows accepted for processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchCreated"
+              example:
+                batchId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unknownFields:
+                  summary: Request contains fields that don't match any column
+                  value:
+                    error: "Unknown fields"
+                    code: "UNKNOWN_FIELDS"
+                    fields: ["Foo", "Bar"]
+                ambiguousField:
+                  summary: A field name matches multiple columns
+                  value:
+                    error: "Ambiguous field name"
+                    code: "AMBIGUOUS_FIELD"
+                    field: "Company"
+                    hint: "Use column slugs to disambiguate"
+                rowLimit:
+                  summary: Table has reached its plan's row limit
+                  value:
+                    error: "Row limit exceeded"
+                    code: "ROW_LIMIT_EXCEEDED"
+                    current: 28
+                    limit: 30
+                    requested: 5
+                tooManyRows:
+                  summary: Request exceeds the 100-row maximum
+                  value:
+                    error: "Too many rows"
+                    code: "TOO_MANY_ROWS"
+                    limit: 100
+                    requested: 150
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/TableNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /batches/{batchId}:
+    get:
+      operationId: getBatch
+      summary: Get batch
+      description: |
+        Check the status of an async batch. When all enrichments are complete, the
+        response includes the full enriched row data and total credits used.
+
+        A batch is `"complete"` when every cell run has reached a terminal state —
+        this includes both succeeded and failed runs. Check `progress.failed > 0`
+        to detect partial failures.
+
+        **Polling strategy:** For fast results, poll every 2–5 seconds. For background
+        processing, poll every 30–60 seconds.
+      tags: [Batches]
+      parameters:
+        - name: batchId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The batch ID returned by a write operation.
+      responses:
+        "200":
+          description: Batch status retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Batch"
+              examples:
+                processing:
+                  summary: Batch still processing
+                  value:
+                    batchId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    tableId: "d290f1ee-6c54-4b01-90e6-d701748f0851"
+                    type: "insert"
+                    status: "processing"
+                    progress:
+                      total: 10
+                      completed: 4
+                      pending: 6
+                      failed: 0
+                    createdAt: "2025-07-01T14:30:00Z"
+                complete:
+                  summary: Batch complete with enriched data
+                  value:
+                    batchId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    tableId: "d290f1ee-6c54-4b01-90e6-d701748f0851"
+                    type: "insert"
+                    status: "complete"
+                    progress:
+                      total: 2
+                      completed: 2
+                      pending: 0
+                      failed: 0
+                    rows:
+                      - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                        Company Name: "Acme Corp"
+                        Website: "acme.com"
+                        CEO Email: "ceo@acme.com"
+                        Employee Count: 150
+                      - id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+                        Company Name: "Beta Inc"
+                        Website: "beta.io"
+                        CEO Email: "founder@beta.io"
+                        Employee Count: 42
+                    creditsUsed: 12
+                    createdAt: "2025-07-01T14:30:00Z"
+                    completedAt: "2025-07-01T14:31:15Z"
+                partialFailure:
+                  summary: Batch complete with some failures
+                  value:
+                    batchId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    tableId: "d290f1ee-6c54-4b01-90e6-d701748f0851"
+                    type: "insert"
+                    status: "complete"
+                    progress:
+                      total: 10
+                      completed: 6
+                      pending: 0
+                      failed: 4
+                    failures:
+                      insufficientCredits: 3
+                      enrichmentError: 1
+                    rows:
+                      - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                        Company Name: "Acme Corp"
+                        Website: "acme.com"
+                        CEO Email: "ceo@acme.com"
+                    creditsUsed: 36
+                    createdAt: "2025-07-01T14:30:00Z"
+                    completedAt: "2025-07-01T14:32:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Batch not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "Batch not found"
+                code: "NOT_FOUND"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /credits:
+    get:
+      operationId: getCredits
+      summary: Get credit balance
+      description: |
+        Returns the current credit balance for the organization tied to this API key.
+      tags: [Credits]
+      responses:
+        "200":
+          description: Credit balance retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credits"
+              example:
+                balance: 1250
+                currency: "credits"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: "og_live_*"
+      description: |
+        API key with `og_live_` prefix. Create keys in **Settings → API Keys**.
+
+        Pass in the `Authorization` header:
+        ```
+        Authorization: Bearer og_live_abc123...
+        ```
+
+  parameters:
+    tableId:
+      name: tableId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The table UUID. Use `GET /tables` to list available tables.
+    page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+      description: Zero-based page index.
+    pageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 100
+      description: Number of items per page.
+
+  schemas:
+    Table:
+      type: object
+      required: [id, name, workspaceId, workspaceName, rowCount, columns, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Table display name.
+        workspaceId:
+          type: string
+          format: uuid
+        workspaceName:
+          type: string
+          description: Name of the workspace containing the table.
+        rowCount:
+          type: integer
+          description: Number of active (non-deleted) rows.
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Column"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Column:
+      type: object
+      required: [name, slug, kind]
+      properties:
+        name:
+          type: string
+          description: Human-readable column name.
+        slug:
+          type: string
+          description: |
+            URL-safe identifier. Unique per table. Preferred for field matching in
+            `POST /tables/{tableId}/rows` because slugs survive column renames.
+        kind:
+          type: string
+          enum: [input, enrichment, score]
+          description: |
+            Column type:
+            - `input` — user-provided data (e.g. company name, website)
+            - `enrichment` — auto-populated by Origami enrichment services
+            - `score` — computed quality/relevance score
+        autoTrigger:
+          type: boolean
+          description: |
+            Only present on `enrichment` columns. When `true`, this enrichment runs
+            automatically when new rows are inserted. When `false`, it must be triggered
+            manually from the Origami UI.
+
+    Row:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Row UUID.
+      additionalProperties: true
+      description: |
+        Flat object with column names as keys. Values are strings, numbers,
+        or arrays depending on column type. Cells with no value are omitted.
+
+    InsertRowsRequest:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: true
+            description: |
+              Key-value pairs where keys are column names or slugs,
+              and values are the cell data to insert.
+          description: |
+            Array of row objects to insert. Each row is a flat object mapping
+            column names or slugs to values. Maximum 100 rows per request.
+        run:
+          type: boolean
+          default: true
+          description: |
+            Whether to trigger enrichment after inserting rows.
+            Defaults to `true`. Set to `false` to insert data without
+            running enrichment — the batch will immediately be `"complete"`.
+
+    BatchCreated:
+      type: object
+      required: [batchId]
+      properties:
+        batchId:
+          type: string
+          format: uuid
+          description: |
+            Unique identifier for the batch. Use this to poll `GET /batches/{batchId}`
+            for progress and results.
+
+    Batch:
+      type: object
+      required: [batchId, tableId, type, status, progress, createdAt]
+      properties:
+        batchId:
+          type: string
+          format: uuid
+        tableId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [insert]
+          description: The operation type that created this batch.
+        status:
+          type: string
+          enum: [processing, complete, errored]
+          description: |
+            - `processing` — enrichment is still running
+            - `complete` — all cell runs finished (check `progress.failed` for partial failures)
+            - `errored` — the batch failed to start (e.g. enrichment pipeline error)
+        progress:
+          $ref: "#/components/schemas/BatchProgress"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Row"
+          description: |
+            Enriched row data. Only present when `status` is `"complete"`.
+        failures:
+          $ref: "#/components/schemas/BatchFailures"
+        creditsUsed:
+          type: number
+          description: Total credits consumed by this batch. Only present when `status` is `"complete"`.
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          description: Only present when `status` is `"complete"`.
+
+    BatchProgress:
+      type: object
+      required: [total, completed, pending, failed]
+      properties:
+        total:
+          type: integer
+          description: Total number of cell runs in the batch.
+        completed:
+          type: integer
+          description: Cell runs that finished successfully.
+        pending:
+          type: integer
+          description: Cell runs still waiting or in progress.
+        failed:
+          type: integer
+          description: Cell runs that errored. Check `failures` for breakdown.
+
+    BatchFailures:
+      type: object
+      description: |
+        Breakdown of failed cell runs by cause. Only present when `progress.failed > 0`.
+      properties:
+        insufficientCredits:
+          type: integer
+          description: Runs that failed because the org ran out of credits. Top up and re-run.
+        enrichmentError:
+          type: integer
+          description: Runs that failed due to an enrichment service error (bad input, upstream API down, etc.).
+
+    Credits:
+      type: object
+      required: [balance, currency]
+      properties:
+        balance:
+          type: number
+          description: Current credit balance for the organization.
+        currency:
+          type: string
+          enum: [credits]
+
+    RowsResponse:
+      type: object
+      required: [rows, total, page, pageSize]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/Row"
+        total:
+          type: integer
+          description: Total number of rows matching the query (before pagination).
+        page:
+          type: integer
+          description: Current page index (zero-based).
+        pageSize:
+          type: integer
+          description: Number of rows per page.
+
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+        code:
+          type: string
+          description: Machine-readable error code.
+      additionalProperties: true
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid, revoked, or expired API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "Invalid API key"
+            code: "UNAUTHORIZED"
+    TableNotFound:
+      description: Table not found or does not belong to this organization.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "Table not found"
+            code: "NOT_FOUND"
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Maximum requests allowed in the window.
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Requests remaining in the current window.
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+          description: Unix timestamp when the rate limit window resets.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "Rate limit exceeded"
+            code: "RATE_LIMITED"

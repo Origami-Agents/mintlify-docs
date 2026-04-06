@@ -1,0 +1,71 @@
+---
+title: "Authentication"
+description: "Create and manage API keys for programmatic access."
+---
+
+The Origami API uses **API keys** for authentication. Each key is scoped to your
+organization and has access to all tables and workspaces within it.
+
+## Creating an API key
+
+1. Go to **Settings → API Keys** in the Origami app
+2. Click **Create API Key**
+3. Give it a descriptive name (e.g. "n8n integration", "CRM sync")
+4. Copy the key immediately — it's shown only once
+
+API keys follow the format:
+
+```bash
+og_live_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcd
+```
+
+The `og_live_` prefix makes keys identifiable in leaked credential scans (GitHub
+secret scanning, GitGuardian, etc.).
+
+## Using your API key
+
+Pass the key in the `Authorization` header as a Bearer token:
+
+```bash
+curl https://app.origami.chat/api/v1/tables \
+  -H "Authorization: Bearer og_live_YOUR_KEY"
+```
+
+Every request must include this header. Requests without a valid key return `401 Unauthorized`.
+
+## Key management
+
+- **Multiple keys:** Create as many keys as you need — one per integration is recommended.
+- **Revocation:** Revoke a key anytime from the API Keys settings page. Revoked keys
+  return `401` immediately.
+- **Rotation:** To rotate a key, create a new one, update your integration, then revoke the old one.
+- **Identification:** The UI shows the last 4 characters of each key for identification.
+
+## Security best practices
+
+<Warning>
+  Never commit API keys to source control. Use environment variables or a secrets manager.
+</Warning>
+
+- Store keys in environment variables (`ORIGAMI_API_KEY`) or a secrets manager
+- Use separate keys for development and production
+- Revoke keys immediately if they may have been exposed
+- Review the API Keys settings page periodically and remove unused keys
+
+## Rate limits
+
+All endpoints are rate-limited per organization:
+
+| Scope | Limit |
+|-------|-------|
+| All endpoints | 100 requests / minute |
+| `POST /tables/{tableId}/rows` | 10 requests / minute |
+
+When rate-limited, the API returns `429 Too Many Requests` with headers indicating
+when you can retry:
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Maximum requests allowed in the window |
+| `X-RateLimit-Remaining` | Requests remaining in the current window |
+| `X-RateLimit-Reset` | Unix timestamp when the window resets |

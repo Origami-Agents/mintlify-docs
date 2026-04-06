@@ -1,97 +1,62 @@
 ---
 title: "Introduction"
-description: "Welcome to the new home for your documentation"
+description: "Enrich company and people data programmatically with the Origami API."
 ---
 
-## Setting up
+The Origami API lets you push raw company or contact data into your Origami tables and get
+enriched results back — emails, employee counts, technographics, and everything else your
+table's enrichment columns produce.
 
-Get your documentation site up and running in minutes.
+## How it works
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+<Steps>
+  <Step title="Create an API key">
+    Go to **Settings → API Keys** in the Origami app and generate a key.
+    It starts with `og_live_` and is shown once — save it securely.
+  </Step>
+  <Step title="List your tables">
+    Call `GET /tables` to see your tables, their columns, and their slugs.
+    Find the table you want to enrich into.
+  </Step>
+  <Step title="Insert rows">
+    `POST /tables/{tableId}/rows` with your raw data. Origami starts enriching
+    immediately and returns a `batchId`.
+  </Step>
+  <Step title="Poll for results">
+    Call `GET /batches/{batchId}` to check progress. When complete, the response
+    includes all enriched row data and credits used.
+  </Step>
+</Steps>
 
-## Make it yours
+## Quick links
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    End-to-end walkthrough with curl examples.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Authentication" icon="key" href="/authentication">
+    How to create and manage API keys.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Full endpoint documentation with interactive playground.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Rate limits & errors" icon="shield-halved" href="/authentication#rate-limits">
+    Rate limits, error codes, and retry strategies.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Base URL
 
-Everything you need to create world-class documentation.
+All API requests go to:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+```text
+https://app.origami.chat/api/v1
+```
 
-## Need inspiration?
+## Async model
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+All write endpoints are **asynchronous**. A `POST` returns a `batchId` immediately —
+poll `GET /batches/{batchId}` to check progress and retrieve enriched results.
+
+- For fast results, poll every **2–5 seconds**.
+- For background processing, poll every **30–60 seconds**.

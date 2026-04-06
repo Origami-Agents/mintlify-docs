@@ -1,80 +1,129 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Enrich your first batch of companies in under 5 minutes."
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+- An Origami account with at least one table set up
+- An API key (create one in **Settings → API Keys**)
 
-### Step 1: Set up your local environment
+## Step 1: List your tables
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Find the table you want to enrich into. The response shows each table's columns,
+so you know which fields to include in your rows.
 
-### Step 2: Deploy your changes
+```bash
+curl https://app.origami.chat/api/v1/tables \
+  -H "Authorization: Bearer og_live_YOUR_KEY"
+```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+```json Example response
+{
+  "tables": [
+    {
+      "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+      "name": "Series A SaaS Companies",
+      "workspaceName": "Outbound Q2",
+      "rowCount": 150,
+      "columns": [
+        { "name": "Company Name", "slug": "company-name", "kind": "input" },
+        { "name": "Website", "slug": "website", "kind": "input" },
+        { "name": "CEO Email", "slug": "ceo-email", "kind": "enrichment", "autoTrigger": true }
+      ]
+    }
+  ]
+}
+```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+Note the `id` and the `input` columns — you'll use these in the next step.
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Step 2: Insert rows
 
-### Step 3: Go live
+Post your raw data. Origami matches field names to columns by slug (exact) or
+name (case-insensitive). Enrichment starts automatically.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+```bash
+curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
+  -H "Authorization: Bearer og_live_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rows": [
+      { "Company Name": "Acme Corp", "Website": "acme.com" },
+      { "Company Name": "Beta Inc", "Website": "beta.io" }
+    ]
+  }'
+```
 
-## Next steps
+```json Response
+{
+  "batchId": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
 
-Now that you have your docs running, explore these key features:
+<Tip>
+  Set `"run": false` in the request body to insert rows without triggering enrichment.
+</Tip>
+
+## Step 3: Poll for results
+
+Use the `batchId` to check progress. Keep polling until `status` is `"complete"`.
+
+```bash
+curl https://app.origami.chat/api/v1/batches/BATCH_ID \
+  -H "Authorization: Bearer og_live_YOUR_KEY"
+```
+
+<CodeGroup>
+```json Processing
+{
+  "batchId": "f47ac10b-...",
+  "status": "processing",
+  "progress": { "total": 4, "completed": 1, "pending": 3, "failed": 0 }
+}
+```
+
+```json Complete
+{
+  "batchId": "f47ac10b-...",
+  "status": "complete",
+  "rows": [
+    {
+      "id": "a1b2c3d4-...",
+      "Company Name": "Acme Corp",
+      "Website": "acme.com",
+      "CEO Email": "ceo@acme.com",
+      "Employee Count": 150
+    },
+    {
+      "id": "b2c3d4e5-...",
+      "Company Name": "Beta Inc",
+      "Website": "beta.io",
+      "CEO Email": "founder@beta.io",
+      "Employee Count": 42
+    }
+  ],
+  "creditsUsed": 12
+}
+```
+</CodeGroup>
+
+## Step 4: Read all table data (optional)
+
+To pull all rows from a table (not just from one batch), use the read endpoint:
+
+```bash
+curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows?pageSize=100" \
+  -H "Authorization: Bearer og_live_YOUR_KEY"
+```
+
+## What's next
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Authentication" icon="key" href="/authentication">
+    Managing API keys and security best practices.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Full endpoint docs with interactive playground.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
