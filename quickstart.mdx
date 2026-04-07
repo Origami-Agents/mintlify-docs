@@ -3,6 +3,10 @@ title: "Quickstart"
 description: "Enrich your first batch of companies in under 5 minutes."
 ---
 
+<Tip>
+  Building with an AI coding assistant? Download the full [OpenAPI specification](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v1.yaml) and paste it into your preferred tool.
+</Tip>
+
 ## Prerequisites
 
 - An Origami account with at least one table set up
@@ -14,7 +18,7 @@ Find the table you want to enrich into. The response shows each table's columns,
 so you know which fields to include in your rows.
 
 ```bash
-curl https://app.origami.chat/api/v1/tables \
+curl https://origami.chat/api/v1/tables \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
@@ -47,7 +51,7 @@ Post your raw data using column **slugs** as field names (from Step 1).
 Enrichment starts automatically.
 
 ```bash
-curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
+curl -X POST https://origami.chat/api/v1/tables/TABLE_ID/rows \
   -H "Authorization: Bearer og_live_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -79,7 +83,7 @@ curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
 Use the `batchId` to check progress. Keep polling until `status` is `"complete"`.
 
 ```bash
-curl https://app.origami.chat/api/v1/batches/BATCH_ID \
+curl https://origami.chat/api/v1/batches/BATCH_ID \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
@@ -142,7 +146,7 @@ curl https://app.origami.chat/api/v1/batches/BATCH_ID \
 To pull all rows from a table (not just from one batch), use the read endpoint:
 
 ```bash
-curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows?pageSize=100" \
+curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?pageSize=100" \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 

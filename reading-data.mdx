@@ -9,7 +9,7 @@ filtering, sorting, column selection, and CSV export.
 ## Basic request
 
 ```bash
-curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows" \
+curl "https://origami.chat/api/v1/tables/TABLE_ID/rows" \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
@@ -21,7 +21,7 @@ sort order applied (the same view you see in the Origami dashboard).
 Use `page` (zero-based) and `pageSize` (max 500) to paginate through results.
 
 ```bash
-curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows?page=2&pageSize=100" \
+curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?page=2&pageSize=100" \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
@@ -34,7 +34,7 @@ Pass a JSON-encoded array of filter objects in the `filters` query parameter.
 Each filter uses a column **slug** (from `GET /tables`), an `operator`, and a `value`.
 
 ```bash
-curl -G "https://app.origami.chat/api/v1/tables/TABLE_ID/rows" \
+curl -G "https://origami.chat/api/v1/tables/TABLE_ID/rows" \
   -H "Authorization: Bearer og_live_YOUR_KEY" \
   --data-urlencode 'filters=[{"column":"website","operator":"is_not_empty","value":""}]'
 ```
@@ -52,7 +52,7 @@ Available operators: `contains`, `not_contains`, `equals`, `not_equals`,
 Pass a JSON-encoded sort object with a column **slug** and `direction` (`asc` or `desc`).
 
 ```bash
-curl -G "https://app.origami.chat/api/v1/tables/TABLE_ID/rows" \
+curl -G "https://origami.chat/api/v1/tables/TABLE_ID/rows" \
   -H "Authorization: Bearer og_live_YOUR_KEY" \
   --data-urlencode 'sort={"column":"quality-score","direction":"desc"}'
 ```
@@ -64,7 +64,7 @@ Like filters, this replaces the table's default sort order.
 Return only specific columns by passing a comma-separated list of slugs.
 
 ```bash
-curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows?columns=company-name,website,ceo-email" \
+curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?columns=company-name,website,ceo-email" \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
@@ -76,7 +76,7 @@ By default, the API applies the same filters and sort order you see in the Origa
 dashboard. Set `defaults=false` to get all rows unfiltered, in insertion order.
 
 ```bash
-curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows?defaults=false" \
+curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?defaults=false" \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
@@ -85,7 +85,7 @@ curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows?defaults=false" \
 Set `format=csv` to get the response as a CSV file instead of JSON.
 
 ```bash
-curl "https://app.origami.chat/api/v1/tables/TABLE_ID/rows?format=csv&pageSize=500" \
+curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?format=csv&pageSize=500" \
   -H "Authorization: Bearer og_live_YOUR_KEY" \
   -o export.csv
 ```

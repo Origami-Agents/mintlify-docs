@@ -42,13 +42,13 @@
     "links": [
       {
         "label": "Support",
-        "href": "mailto:support@origami.chat"
+        "href": "mailto:hello@origamiagents.com"
       }
     ],
     "primary": {
       "type": "button",
       "label": "Dashboard",
-      "href": "https://app.origami.chat"
+      "href": "https://origami.chat"
     }
   },
   "contextual": {
