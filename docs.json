@@ -22,7 +22,8 @@
             "pages": [
               "index",
               "quickstart",
-              "authentication"
+              "authentication",
+              "reading-data"
             ]
           }
         ]

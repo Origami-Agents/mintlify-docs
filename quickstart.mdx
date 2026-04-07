@@ -65,6 +65,12 @@ curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
   Set `"run": false` in the request body to insert rows without triggering enrichment.
 </Tip>
 
+<Info>
+  For safe retries, include a `"batchId"` (any UUID you generate) in the request body.
+  If the request is retried with the same `batchId`, Origami returns the existing batch
+  instead of inserting duplicate rows.
+</Info>
+
 ## Step 3: Poll for results
 
 Use the `batchId` to check progress. Keep polling until `status` is `"complete"`.
@@ -78,15 +84,23 @@ curl https://app.origami.chat/api/v1/batches/BATCH_ID \
 ```json Processing
 {
   "batchId": "f47ac10b-...",
+  "tableId": "d290f1ee-...",
+  "type": "insert",
   "status": "processing",
-  "progress": { "total": 4, "completed": 1, "pending": 3, "failed": 0 }
+  "rowCount": 2,
+  "enrichments": { "total": 4, "completed": 1, "pending": 3, "failed": 0 },
+  "createdAt": "2025-07-01T14:30:00Z"
 }
 ```
 
 ```json Complete
 {
   "batchId": "f47ac10b-...",
+  "tableId": "d290f1ee-...",
+  "type": "insert",
   "status": "complete",
+  "rowCount": 2,
+  "enrichments": { "total": 4, "completed": 4, "pending": 0, "failed": 0 },
   "rows": [
     {
       "id": "a1b2c3d4-...",
@@ -103,7 +117,9 @@ curl https://app.origami.chat/api/v1/batches/BATCH_ID \
       "Employee Count": 42
     }
   ],
-  "creditsUsed": 12
+  "creditsUsed": 12,
+  "createdAt": "2025-07-01T14:30:00Z",
+  "completedAt": "2025-07-01T14:31:15Z"
 }
 ```
 </CodeGroup>

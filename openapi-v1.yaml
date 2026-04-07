@@ -105,6 +105,13 @@ paths:
                       - name: "Quality Score"
                         slug: "quality-score"
                         kind: "score"
+                    defaultFilters:
+                      - column: "website"
+                        operator: "is_not_empty"
+                        value: ""
+                    defaultSort:
+                      column: "quality-score"
+                      direction: "desc"
                     createdAt: "2025-06-01T12:00:00Z"
                     updatedAt: "2025-06-15T09:30:00Z"
         "401":
@@ -140,15 +147,41 @@ paths:
           schema:
             type: string
           description: |
-            JSON-encoded filter array. Each filter object specifies a column slug, operator, and value.
-          example: '[{"column":"website","op":"is_not_empty"}]'
+            JSON-encoded array of filter objects. Each filter uses a column **slug**
+            (from `GET /tables`), an `operator`, and a `value`.
+
+            Operators: `contains`, `not_contains`, `equals`, `not_equals`,
+            `is_empty`, `is_not_empty`, `greater_than`, `greater_than_or_equal`,
+            `less_than`, `less_than_or_equal`.
+
+            When provided, the table's default filters are **replaced** by these.
+          example: '[{"column":"website","operator":"is_not_empty","value":""}]'
         - name: sort
           in: query
           schema:
             type: string
           description: |
-            JSON-encoded sort specification.
-          example: '[{"column":"company-name","direction":"asc"}]'
+            JSON-encoded sort object with a column **slug** and direction.
+            When provided, the table's default sort is **replaced** by this.
+          example: '{"column":"quality-score","direction":"desc"}'
+        - name: columns
+          in: query
+          schema:
+            type: string
+          description: |
+            Comma-separated list of column slugs to include in the response.
+            Omit to return all columns. Use slugs from `GET /tables`.
+          example: "company-name,website,quality-score"
+        - name: defaults
+          in: query
+          schema:
+            type: string
+            enum: ["true", "false"]
+            default: "true"
+          description: |
+            Whether to apply the table's saved filters and sort order (the same
+            ones shown in the Origami dashboard). Set to `false` to get all rows
+            unfiltered, in insertion order.
         - name: format
           in: query
           schema:
@@ -233,6 +266,13 @@ paths:
                   rows:
                     - company-name: "Delta Co"
                       website: "delta.io"
+              idempotentRetry:
+                summary: Idempotent insert with caller-generated batch ID
+                value:
+                  rows:
+                    - Company Name: "Acme Corp"
+                      Website: "acme.com"
+                  batchId: "550e8400-e29b-41d4-a716-446655440000"
       responses:
         "201":
           description: Rows accepted for processing.
@@ -292,8 +332,8 @@ paths:
         Check the status of an async batch. When all enrichments are complete, the
         response includes the full enriched row data and total credits used.
 
-        A batch is `"complete"` when every cell run has reached a terminal state —
-        this includes both succeeded and failed runs. Check `progress.failed > 0`
+        A batch is `"complete"` when every enrichment has reached a terminal state —
+        this includes both succeeded and failed runs. Check `enrichments.failed > 0`
         to detect partial failures.
 
         **Polling strategy:** For fast results, poll every 2–5 seconds. For background
@@ -322,7 +362,8 @@ paths:
                     tableId: "d290f1ee-6c54-4b01-90e6-d701748f0851"
                     type: "insert"
                     status: "processing"
-                    progress:
+                    rowCount: 2
+                    enrichments:
                       total: 10
                       completed: 4
                       pending: 6
@@ -335,9 +376,10 @@ paths:
                     tableId: "d290f1ee-6c54-4b01-90e6-d701748f0851"
                     type: "insert"
                     status: "complete"
-                    progress:
-                      total: 2
-                      completed: 2
+                    rowCount: 2
+                    enrichments:
+                      total: 10
+                      completed: 10
                       pending: 0
                       failed: 0
                     rows:
@@ -361,7 +403,8 @@ paths:
                     tableId: "d290f1ee-6c54-4b01-90e6-d701748f0851"
                     type: "insert"
                     status: "complete"
-                    progress:
+                    rowCount: 5
+                    enrichments:
                       total: 10
                       completed: 6
                       pending: 0
@@ -478,6 +521,38 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Column"
+        defaultFilters:
+          type: array
+          nullable: true
+          description: |
+            Filters currently applied to this table in the Origami dashboard.
+            `null` when no filters are active. Column references use slugs.
+          items:
+            type: object
+            required: [column, operator, value]
+            properties:
+              column:
+                type: string
+                description: Column slug.
+              operator:
+                type: string
+                description: Filter operator (e.g. `equals`, `contains`, `is_not_empty`).
+              value:
+                description: Filter value.
+        defaultSort:
+          type: object
+          nullable: true
+          description: |
+            Sort order currently applied to this table in the Origami dashboard.
+            `null` when no sort is active.
+          required: [column, direction]
+          properties:
+            column:
+              type: string
+              description: Column slug.
+            direction:
+              type: string
+              enum: [asc, desc]
         createdAt:
           type: string
           format: date-time
@@ -549,6 +624,15 @@ components:
             Whether to trigger enrichment after inserting rows.
             Defaults to `true`. Set to `false` to insert data without
             running enrichment — the batch will immediately be `"complete"`.
+        batchId:
+          type: string
+          format: uuid
+          description: |
+            Optional caller-generated UUID for idempotent retries. If a batch
+            with this ID already exists for the organization, the server returns
+            the existing batch (HTTP 200) without inserting rows again. Generate
+            a UUID client-side and include it with every attempt to make retries
+            safe after network failures.
 
     BatchCreated:
       type: object
@@ -563,7 +647,7 @@ components:
 
     Batch:
       type: object
-      required: [batchId, tableId, type, status, progress, createdAt]
+      required: [batchId, tableId, type, status, rowCount, enrichments, createdAt]
       properties:
         batchId:
           type: string
@@ -580,10 +664,16 @@ components:
           enum: [processing, complete, errored]
           description: |
             - `processing` — enrichment is still running
-            - `complete` — all cell runs finished (check `progress.failed` for partial failures)
+            - `complete` — all enrichments finished (check `enrichments.failed` for partial failures)
             - `errored` — the batch failed to start (e.g. enrichment pipeline error)
-        progress:
-          $ref: "#/components/schemas/BatchProgress"
+        rowCount:
+          type: integer
+          description: |
+            Number of rows created by this batch. Note that `enrichments` tracks
+            individual enrichment operations (one per enrichment column per row),
+            so `enrichments.total` will typically be higher than `rowCount`.
+        enrichments:
+          $ref: "#/components/schemas/BatchEnrichments"
         rows:
           type: array
           items:
@@ -603,27 +693,27 @@ components:
           format: date-time
           description: Only present when `status` is `"complete"`.
 
-    BatchProgress:
+    BatchEnrichments:
       type: object
       required: [total, completed, pending, failed]
       properties:
         total:
           type: integer
-          description: Total number of cell runs in the batch.
+          description: Total enrichment operations in the batch (one per enrichment column per row).
         completed:
           type: integer
-          description: Cell runs that finished successfully.
+          description: Enrichments that finished successfully.
         pending:
           type: integer
-          description: Cell runs still waiting or in progress.
+          description: Enrichments still waiting or in progress.
         failed:
           type: integer
-          description: Cell runs that errored. Check `failures` for breakdown.
+          description: Enrichments that errored. Check `failures` for breakdown.
 
     BatchFailures:
       type: object
       description: |
-        Breakdown of failed cell runs by cause. Only present when `progress.failed > 0`.
+        Breakdown of failed enrichments by cause. Only present when `enrichments.failed > 0`.
       properties:
         insufficientCredits:
           type: integer
