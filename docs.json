@@ -60,10 +60,5 @@
       "cursor"
     ]
   },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/origami_chat",
-      "linkedin": "https://linkedin.com/company/origami-chat"
-    }
-  }
+  "footer": {}
 }
