@@ -32,16 +32,19 @@ curl https://app.origami.chat/api/v1/tables \
         { "name": "CEO Email", "slug": "ceo-email", "kind": "enrichment", "autoTrigger": true }
       ]
     }
-  ]
+  ],
+  "total": 1,
+  "page": 0,
+  "pageSize": 50
 }
 ```
 
-Note the `id` and the `input` columns — you'll use these in the next step.
+Note the `id` and the input column **slugs** — you'll use these as field names in the next step.
 
 ## Step 2: Insert rows
 
-Post your raw data. Origami matches field names to columns by slug (exact) or
-name (case-insensitive). Enrichment starts automatically.
+Post your raw data using column **slugs** as field names (from Step 1).
+Enrichment starts automatically.
 
 ```bash
 curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
@@ -49,8 +52,8 @@ curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
   -H "Content-Type: application/json" \
   -d '{
     "rows": [
-      { "Company Name": "Acme Corp", "Website": "acme.com" },
-      { "Company Name": "Beta Inc", "Website": "beta.io" }
+      { "company-name": "Acme Corp", "website": "acme.com" },
+      { "company-name": "Beta Inc", "website": "beta.io" }
     ]
   }'
 ```
@@ -62,7 +65,7 @@ curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
 ```
 
 <Tip>
-  Set `"run": false` in the request body to insert rows without triggering enrichment.
+  Set `"enrich": false` in the request body to insert rows without triggering enrichment.
 </Tip>
 
 <Info>
@@ -89,7 +92,10 @@ curl https://app.origami.chat/api/v1/batches/BATCH_ID \
   "status": "processing",
   "rowCount": 2,
   "enrichments": { "total": 4, "completed": 1, "pending": 3, "failed": 0 },
-  "createdAt": "2025-07-01T14:30:00Z"
+  "failures": {},
+  "creditsUsed": 0,
+  "createdAt": "2025-07-01T14:30:00Z",
+  "completedAt": null
 }
 ```
 
@@ -101,20 +107,27 @@ curl https://app.origami.chat/api/v1/batches/BATCH_ID \
   "status": "complete",
   "rowCount": 2,
   "enrichments": { "total": 4, "completed": 4, "pending": 0, "failed": 0 },
+  "failures": {},
+  "columns": {
+    "company-name": "Company Name",
+    "website": "Website",
+    "ceo-email": "CEO Email",
+    "employee-count": "Employee Count"
+  },
   "rows": [
     {
       "id": "a1b2c3d4-...",
-      "Company Name": "Acme Corp",
-      "Website": "acme.com",
-      "CEO Email": "ceo@acme.com",
-      "Employee Count": 150
+      "company-name": "Acme Corp",
+      "website": "acme.com",
+      "ceo-email": "ceo@acme.com",
+      "employee-count": 150
     },
     {
       "id": "b2c3d4e5-...",
-      "Company Name": "Beta Inc",
-      "Website": "beta.io",
-      "CEO Email": "founder@beta.io",
-      "Employee Count": 42
+      "company-name": "Beta Inc",
+      "website": "beta.io",
+      "ceo-email": "founder@beta.io",
+      "employee-count": 42
     }
   ],
   "creditsUsed": 12,

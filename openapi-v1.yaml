@@ -20,6 +20,13 @@ info:
 
     Every response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
 
+    ## Request IDs
+
+    Every response includes an `X-Request-Id` header. You can pass your own ID
+    via the `X-Request-Id` request header (1–64 alphanumeric / dash / underscore
+    characters); otherwise the server generates a UUID. Include this ID in support
+    requests to help us trace issues.
+
     ## Errors
 
     All errors follow a consistent format:
@@ -31,7 +38,17 @@ info:
     }
     ```
 
-    Some errors include additional context fields like `field`, `fields`, `hint`, `current`, `limit`, or `requested`.
+    Some errors include additional context fields like `path`, `fields`, `hint`, `current`, `limit`, or `requested`.
+
+    | Code | Status | Meaning |
+    |------|--------|---------|
+    | `UNAUTHORIZED` | 401 | Missing, invalid, revoked, or expired API key. |
+    | `VALIDATION_ERROR` | 400 | Invalid request parameter or body. |
+    | `NOT_FOUND` | 404 | Table or batch not found. |
+    | `RATE_LIMITED` | 429 | Too many requests — see rate-limit headers. |
+    | `INSUFFICIENT_CREDITS` | 402 | Not enough credits to complete the operation. |
+    | `SUBSCRIPTION_REQUIRED` | 402 | Feature requires a plan upgrade. |
+    | `INTERNAL_ERROR` | 500 | Unexpected server error. |
 
   contact:
     name: Origami Support
@@ -40,7 +57,7 @@ info:
     name: Proprietary
 
 servers:
-  - url: https://app.origami.chat/api/v1
+  - url: https://origami.chat/api/v1
     description: Production
 
 security:
@@ -66,7 +83,7 @@ paths:
         The API key scopes to the org — no workspace ID needed.
 
         The typical workflow is: list tables → find the one you want by name → note its
-        input columns → use the `tableId` and column names/slugs in `POST /tables/{tableId}/rows`.
+        input columns → use the `tableId` and column slugs in `POST /tables/{tableId}/rows`.
       tags: [Tables]
       parameters:
         - $ref: "#/components/parameters/page"
@@ -78,12 +95,21 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [tables]
+                required: [tables, total, page, pageSize]
                 properties:
                   tables:
                     type: array
                     items:
                       $ref: "#/components/schemas/Table"
+                  total:
+                    type: integer
+                    description: Total number of tables in the organization.
+                  page:
+                    type: integer
+                    description: Current page index (zero-based).
+                  pageSize:
+                    type: integer
+                    description: Number of tables per page.
               example:
                 tables:
                   - id: "d290f1ee-6c54-4b01-90e6-d701748f0851"
@@ -114,10 +140,15 @@ paths:
                       direction: "desc"
                     createdAt: "2025-06-01T12:00:00Z"
                     updatedAt: "2025-06-15T09:30:00Z"
+                total: 1
+                page: 0
+                pageSize: 50
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /tables/{tableId}/rows:
     get:
@@ -126,8 +157,9 @@ paths:
       description: |
         Read all rows in a table with pagination, filtering, and sorting.
 
-        Rows are returned as flat objects with column names as keys.
-        Cells with no value or in an errored state are omitted.
+        Rows are returned as flat objects with column **slugs** as keys. The response
+        includes a `columns` map (slug → display name) so you can resolve human-readable
+        names. Cells with no value or in an errored state are omitted.
 
         Supports CSV export via the `format` query parameter.
       tags: [Tables]
@@ -197,23 +229,58 @@ paths:
               schema:
                 $ref: "#/components/schemas/RowsResponse"
               example:
+                columns:
+                  company-name: "Company Name"
+                  website: "Website"
+                  ceo-email: "CEO Email"
                 rows:
                   - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-                    Company Name: "Acme Corp"
-                    Website: "acme.com"
-                    CEO Email: "ceo@acme.com"
+                    company-name: "Acme Corp"
+                    website: "acme.com"
+                    ceo-email: "ceo@acme.com"
                 total: 1234
                 page: 0
                 pageSize: 50
             text/csv:
               schema:
                 type: string
+        "400":
+          description: Invalid query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                invalidFilters:
+                  summary: Malformed filters JSON
+                  value:
+                    error: "Invalid filters JSON"
+                    code: "INVALID_FILTERS"
+                invalidSort:
+                  summary: Malformed sort JSON
+                  value:
+                    error: "Invalid sort JSON"
+                    code: "INVALID_SORT"
+                unknownColumn:
+                  summary: Filter or sort references an unknown column slug
+                  value:
+                    error: "Unknown filter columns"
+                    code: "UNKNOWN_COLUMN"
+                    columns: ["nonexistent-column"]
+                validationError:
+                  summary: Invalid filter operator or sort direction
+                  value:
+                    error: "Invalid filter operator"
+                    code: "VALIDATION_ERROR"
+                    operators: ["bad_operator"]
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/TableNotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
     post:
       operationId: insertRows
@@ -222,12 +289,13 @@ paths:
         Insert rows into an existing table. Returns a batch ID immediately — poll
         `GET /batches/{batchId}` for enrichment progress and results.
 
-        **Column matching:** Field names in each row object are matched to existing table columns
-        by `slug` first (exact match), then by `name` (case-insensitive, trimmed).
-        Use `GET /tables` to discover available column names and slugs.
+        **Column matching:** Field names in each row object are matched to **input** columns
+        by **slug** (exact match). Only columns with `kind: "input"` are accepted —
+        enrichment and score columns are populated automatically. Use `GET /tables` to
+        discover available column slugs and their kinds.
 
-        **Enrichment:** By default (`run: true`), all auto-trigger enrichment columns run
-        immediately after insertion. Set `run: false` to insert data without triggering enrichment.
+        **Enrichment:** By default (`enrich: true`), all auto-trigger enrichment columns run
+        immediately after insertion. Set `enrich: false` to insert data without triggering enrichment.
 
         **Deduplication & exclusion lists** apply automatically — the same table-level rules
         from the UI are enforced. Duplicate or excluded rows are inserted but may not enrich.
@@ -249,31 +317,35 @@ paths:
                 summary: Insert two companies
                 value:
                   rows:
-                    - Company Name: "Acme Corp"
-                      Website: "acme.com"
-                    - Company Name: "Beta Inc"
-                      Website: "beta.io"
+                    - company-name: "Acme Corp"
+                      website: "acme.com"
+                    - company-name: "Beta Inc"
+                      website: "beta.io"
               withoutEnrichment:
                 summary: Insert without triggering enrichment
                 value:
                   rows:
-                    - Company Name: "Gamma LLC"
-                      Website: "gamma.dev"
-                  run: false
-              usingSlugs:
-                summary: Insert using column slugs (preferred for stability)
-                value:
-                  rows:
-                    - company-name: "Delta Co"
-                      website: "delta.io"
+                    - company-name: "Gamma LLC"
+                      website: "gamma.dev"
+                  enrich: false
               idempotentRetry:
                 summary: Idempotent insert with caller-generated batch ID
                 value:
                   rows:
-                    - Company Name: "Acme Corp"
-                      Website: "acme.com"
+                    - company-name: "Acme Corp"
+                      website: "acme.com"
                   batchId: "550e8400-e29b-41d4-a716-446655440000"
       responses:
+        "200":
+          description: |
+            Idempotent replay — a batch with the provided `batchId` already exists.
+            The original batch ID is returned without inserting new rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchCreated"
+              example:
+                batchId: "550e8400-e29b-41d4-a716-446655440000"
         "201":
           description: Rows accepted for processing.
           content:
@@ -289,19 +361,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
               examples:
+                nonInputColumns:
+                  summary: Request contains enrichment or score column slugs
+                  value:
+                    error: "Only input columns can be set via the API"
+                    code: "NON_INPUT_COLUMNS"
+                    fields: ["ceo-email"]
+                    hint: "Enrichment and score columns are populated automatically"
                 unknownFields:
-                  summary: Request contains fields that don't match any column
+                  summary: Request contains fields that don't match any column slug
                   value:
                     error: "Unknown fields"
                     code: "UNKNOWN_FIELDS"
                     fields: ["Foo", "Bar"]
-                ambiguousField:
-                  summary: A field name matches multiple columns
-                  value:
-                    error: "Ambiguous field name"
-                    code: "AMBIGUOUS_FIELD"
-                    field: "Company"
-                    hint: "Use column slugs to disambiguate"
+                    hint: "Use input column slugs from GET /tables"
                 rowLimit:
                   summary: Table has reached its plan's row limit
                   value:
@@ -310,19 +383,22 @@ paths:
                     current: 28
                     limit: 30
                     requested: 5
-                tooManyRows:
-                  summary: Request exceeds the 100-row maximum
+                validationError:
+                  summary: Invalid request body (e.g. empty rows, too many rows, invalid batchId)
                   value:
-                    error: "Too many rows"
-                    code: "TOO_MANY_ROWS"
-                    limit: 100
-                    requested: 150
+                    error: "rows must be a non-empty array"
+                    code: "VALIDATION_ERROR"
+                    path: "rows"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/PaymentRequired"
         "404":
           $ref: "#/components/responses/TableNotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /batches/{batchId}:
     get:
@@ -368,7 +444,10 @@ paths:
                       completed: 4
                       pending: 6
                       failed: 0
-                    createdAt: "2025-07-01T14:30:00Z"
+                    failures: {}
+                    creditsUsed: 0
+                    createdAt: "2026-07-01T14:30:00Z"
+                    completedAt: null
                 complete:
                   summary: Batch complete with enriched data
                   value:
@@ -382,20 +461,26 @@ paths:
                       completed: 10
                       pending: 0
                       failed: 0
+                    failures: {}
+                    columns:
+                      company-name: "Company Name"
+                      website: "Website"
+                      ceo-email: "CEO Email"
+                      employee-count: "Employee Count"
                     rows:
                       - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-                        Company Name: "Acme Corp"
-                        Website: "acme.com"
-                        CEO Email: "ceo@acme.com"
-                        Employee Count: 150
+                        company-name: "Acme Corp"
+                        website: "acme.com"
+                        ceo-email: "ceo@acme.com"
+                        employee-count: 150
                       - id: "b2c3d4e5-f6a7-8901-bcde-f12345678901"
-                        Company Name: "Beta Inc"
-                        Website: "beta.io"
-                        CEO Email: "founder@beta.io"
-                        Employee Count: 42
+                        company-name: "Beta Inc"
+                        website: "beta.io"
+                        ceo-email: "founder@beta.io"
+                        employee-count: 42
                     creditsUsed: 12
-                    createdAt: "2025-07-01T14:30:00Z"
-                    completedAt: "2025-07-01T14:31:15Z"
+                    createdAt: "2026-07-01T14:30:00Z"
+                    completedAt: "2026-07-01T14:31:15Z"
                 partialFailure:
                   summary: Batch complete with some failures
                   value:
@@ -412,14 +497,27 @@ paths:
                     failures:
                       insufficientCredits: 3
                       enrichmentError: 1
+                    columns:
+                      company-name: "Company Name"
+                      website: "Website"
+                      ceo-email: "CEO Email"
                     rows:
                       - id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-                        Company Name: "Acme Corp"
-                        Website: "acme.com"
-                        CEO Email: "ceo@acme.com"
+                        company-name: "Acme Corp"
+                        website: "acme.com"
+                        ceo-email: "ceo@acme.com"
                     creditsUsed: 36
-                    createdAt: "2025-07-01T14:30:00Z"
-                    completedAt: "2025-07-01T14:32:00Z"
+                    createdAt: "2026-07-01T14:30:00Z"
+                    completedAt: "2026-07-01T14:32:00Z"
+        "400":
+          description: Invalid path parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "Invalid batchId"
+                code: "VALIDATION_ERROR"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -433,6 +531,8 @@ paths:
                 code: "NOT_FOUND"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /credits:
     get:
@@ -455,6 +555,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
   securitySchemes:
@@ -570,8 +672,9 @@ components:
         slug:
           type: string
           description: |
-            URL-safe identifier. Unique per table. Preferred for field matching in
-            `POST /tables/{tableId}/rows` because slugs survive column renames.
+            URL-safe identifier. Unique per table. Used as the key in row data objects
+            and as the field name in `POST /tables/{tableId}/rows`. Slugs are stable
+            across column renames.
         kind:
           type: string
           enum: [input, enrichment, score]
@@ -597,8 +700,9 @@ components:
           description: Row UUID.
       additionalProperties: true
       description: |
-        Flat object with column names as keys. Values are strings, numbers,
+        Flat object with column **slugs** as keys. Values are strings, numbers,
         or arrays depending on column type. Cells with no value are omitted.
+        Use the `columns` map in the response to resolve slugs to display names.
 
     InsertRowsRequest:
       type: object
@@ -612,12 +716,12 @@ components:
             type: object
             additionalProperties: true
             description: |
-              Key-value pairs where keys are column names or slugs,
-              and values are the cell data to insert.
+              Key-value pairs where keys are **input** column slugs (from `GET /tables`,
+              where `kind` is `"input"`) and values are the cell data to insert.
           description: |
             Array of row objects to insert. Each row is a flat object mapping
-            column names or slugs to values. Maximum 100 rows per request.
-        run:
+            input column slugs to values. Maximum 100 rows per request.
+        enrich:
           type: boolean
           default: true
           description: |
@@ -647,7 +751,7 @@ components:
 
     Batch:
       type: object
-      required: [batchId, tableId, type, status, rowCount, enrichments, createdAt]
+      required: [batchId, tableId, type, status, rowCount, enrichments, failures, creditsUsed, createdAt, completedAt]
       properties:
         batchId:
           type: string
@@ -669,29 +773,38 @@ components:
         rowCount:
           type: integer
           description: |
-            Number of rows created by this batch. Note that `enrichments` tracks
-            individual enrichment operations (one per enrichment column per row),
-            so `enrichments.total` will typically be higher than `rowCount`.
+            Number of rows created by this batch. Each row can have multiple
+            enrichment cells (one per enrichment column), so `enrichments.total`
+            will typically be higher than `rowCount`.
         enrichments:
           $ref: "#/components/schemas/BatchEnrichments"
+        columns:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Map of column slug → display name. Only present when `status` is `"complete"`.
+            Use this to resolve slug keys in `rows` to human-readable column names.
         rows:
           type: array
           items:
             $ref: "#/components/schemas/Row"
           description: |
             Enriched row data. Only present when `status` is `"complete"`.
+            Row keys are column slugs — use the `columns` map to resolve display names.
         failures:
           $ref: "#/components/schemas/BatchFailures"
         creditsUsed:
-          type: number
-          description: Total credits consumed by this batch. Only present when `status` is `"complete"`.
+          type: integer
+          description: Total credits consumed by this batch (rounded to nearest whole credit). `0` while processing or when no credits were used.
         createdAt:
           type: string
           format: date-time
         completedAt:
           type: string
           format: date-time
-          description: Only present when `status` is `"complete"`.
+          nullable: true
+          description: Timestamp when the batch finished. `null` while still processing.
 
     BatchEnrichments:
       type: object
@@ -699,44 +812,51 @@ components:
       properties:
         total:
           type: integer
-          description: Total enrichment operations in the batch (one per enrichment column per row).
+          description: Total enrichment cells in the batch (one per enrichment column per row).
         completed:
           type: integer
-          description: Enrichments that finished successfully.
+          description: Enrichment cells that finished successfully.
         pending:
           type: integer
-          description: Enrichments still waiting or in progress.
+          description: Enrichment cells still waiting or in progress.
         failed:
           type: integer
-          description: Enrichments that errored. Check `failures` for breakdown.
+          description: Enrichment cells that errored. Check `failures` for breakdown.
 
     BatchFailures:
       type: object
       description: |
-        Breakdown of failed enrichments by cause. Only present when `enrichments.failed > 0`.
+        Breakdown of failed enrichment cells by cause. Empty object `{}` when there are no failures.
       properties:
         insufficientCredits:
           type: integer
-          description: Runs that failed because the org ran out of credits. Top up and re-run.
+          description: Cells that failed because the org ran out of credits. Top up and re-run.
         enrichmentError:
           type: integer
-          description: Runs that failed due to an enrichment service error (bad input, upstream API down, etc.).
+          description: Cells that failed due to an enrichment service error (bad input, upstream API down, etc.).
 
     Credits:
       type: object
       required: [balance, currency]
       properties:
         balance:
-          type: number
-          description: Current credit balance for the organization.
+          type: integer
+          description: Current credit balance for the organization (rounded to nearest whole credit).
         currency:
           type: string
           enum: [credits]
 
     RowsResponse:
       type: object
-      required: [rows, total, page, pageSize]
+      required: [columns, rows, total, page, pageSize]
       properties:
+        columns:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Map of column slug → display name. Use this to resolve the slug keys
+            in each row object to human-readable column names.
         rows:
           type: array
           items:
@@ -782,6 +902,35 @@ components:
           example:
             error: "Table not found"
             code: "NOT_FOUND"
+    PaymentRequired:
+      description: Insufficient credits or subscription upgrade needed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            insufficientCredits:
+              summary: Not enough credits
+              value:
+                error: "Insufficient credits"
+                code: "INSUFFICIENT_CREDITS"
+                creditsRequired: 50
+                creditsAvailable: 12
+            subscriptionRequired:
+              summary: Plan upgrade needed
+              value:
+                error: "Subscription required"
+                code: "SUBSCRIPTION_REQUIRED"
+                hint: "Upgrade to a Growth or Business plan to use this feature."
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "Internal server error"
+            code: "INTERNAL_ERROR"
     RateLimited:
       description: Rate limit exceeded.
       headers:
