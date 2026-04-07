@@ -4,50 +4,21 @@ info:
   version: "1.0"
   description: |
     The Origami API lets you enrich company and people data programmatically.
+    See the [Quickstart](/quickstart) for a walkthrough with curl examples.
 
-    ## Quick start
-
-    1. Create an API key in **Settings → API Keys**
-    2. List your tables to find the one you want to enrich into
-    3. POST rows with your raw data — Origami enriches them automatically
-    4. Poll the batch until it completes, then read the enriched results
-
-    ```bash
-    # 1. List tables
-    curl https://app.origami.chat/api/v1/tables \
-      -H "Authorization: Bearer og_live_YOUR_KEY"
-
-    # 2. Insert rows
-    curl -X POST https://app.origami.chat/api/v1/tables/TABLE_ID/rows \
-      -H "Authorization: Bearer og_live_YOUR_KEY" \
-      -H "Content-Type: application/json" \
-      -d '{"rows": [{"Company Name": "Acme Corp", "Website": "acme.com"}]}'
-
-    # 3. Poll batch
-    curl https://app.origami.chat/api/v1/batches/BATCH_ID \
-      -H "Authorization: Bearer og_live_YOUR_KEY"
-    ```
-
-    ## Async model
-
-    All write endpoints are **asynchronous**. A `POST` returns a `batchId` immediately.
-    Poll `GET /batches/{batchId}` to check progress and retrieve enriched results once complete.
-
-    Callers who want synchronous behavior can poll in a tight loop.
-    Callers who want webhook-like behavior can poll on a schedule from their server.
+    All write endpoints are **asynchronous** — a `POST` returns a `batchId` immediately.
+    Poll `GET /batches/{batchId}` for progress and enriched results.
 
     ## Rate limits
 
-    All endpoints are rate-limited **per organization**. Every API key in your
-    organization shares the same quota.
+    All endpoints are rate-limited **per organization**.
 
     | Scope | Limit |
     |-------|-------|
-    | Per organization, all endpoints | **100 requests / minute** |
-    | Per organization, `POST /tables/{tableId}/rows` | **10 requests / minute** |
+    | All endpoints | **100 requests / minute** |
+    | `POST /tables/{tableId}/rows` | **10 requests / minute** |
 
-    Every response includes rate limit headers so you can track usage:
-    `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+    Every response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
 
     ## Errors
 
