@@ -32,6 +32,8 @@ curl https://origami.chat/api/v1/tables \
 ```
 
 Every request must include this header. Requests without a valid key return `401 Unauthorized`.
+Requests from organizations on a free plan return `402 Payment Required` with
+`code: "SUBSCRIPTION_REQUIRED"` — upgrade to a paid plan to use the API.
 
 ## Key management
 
@@ -54,8 +56,8 @@ Every request must include this header. Requests without a valid key return `401
 
 ## Rate limits
 
-All endpoints are rate-limited **per organization**. Every API key in your organization
-shares the same quota.
+Every API key in your organization shares the same quota. Additional per-IP
+limits may apply to protect against abuse.
 
 | Scope | Limit |
 |-------|-------|
@@ -67,11 +69,14 @@ shares the same quota.
   reset rather than retrying immediately.
 </Info>
 
-When rate-limited, the API returns `429 Too Many Requests`. Every response includes
-headers so you can track your usage proactively:
+When rate-limited, the API returns `429 Too Many Requests`. Every response
+includes headers so you can track usage proactively:
 
 | Header | Description |
 |--------|-------------|
-| `X-RateLimit-Limit` | Maximum requests allowed in the window |
-| `X-RateLimit-Remaining` | Requests remaining in the current window |
-| `X-RateLimit-Reset` | Unix timestamp when the window resets |
+| `X-RateLimit-Limit-Global` | Maximum requests allowed in the window |
+| `X-RateLimit-Remaining-Global` | Requests remaining in the current window |
+| `X-RateLimit-Reset-Global` | Unix timestamp when the window resets |
+| `X-RateLimit-Limit-Insert` | Maximum insert requests allowed in the window (write routes only) |
+| `X-RateLimit-Remaining-Insert` | Insert requests remaining in the current window |
+| `X-RateLimit-Reset-Insert` | Unix timestamp when the window resets |

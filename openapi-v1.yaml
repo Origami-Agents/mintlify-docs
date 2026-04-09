@@ -11,14 +11,17 @@ info:
 
     ## Rate limits
 
-    All endpoints are rate-limited **per organization**.
+    Limits apply in layers: **per IP** (all requests), **per organization** (after a valid API key), and an extra **insert** cap on row writes.
 
     | Scope | Limit |
     |-------|-------|
-    | All endpoints | **100 requests / minute** |
-    | `POST /tables/{tableId}/rows` | **10 requests / minute** |
+    | Per client IP | **300 requests / minute** |
+    | Per organization (all endpoints) | **100 requests / minute** |
+    | `POST /tables/{tableId}/rows` (per organization) | **10 requests / minute** |
 
-    Every response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
+    Each layer exposes its own response headers: `X-RateLimit-Limit-{IP|Global|Insert}`,
+    `X-RateLimit-Remaining-{IP|Global|Insert}`, and `X-RateLimit-Reset-{IP|Global|Insert}` (Unix seconds).
+    A request may include several of these when multiple layers apply.
 
     ## Request IDs
 
@@ -412,6 +415,12 @@ paths:
         this includes both succeeded and failed runs. Check `enrichments.failed > 0`
         to detect partial failures.
 
+        **Rows in the response:** When `status` is `"complete"`, `rows` includes every
+        row for this batch in a single array (not paginated). Insert requests are
+        limited to **100 rows** per batch (see `POST /tables/{tableId}/rows`), so
+        result payloads stay bounded; if that limit increases in the future, pagination
+        may be introduced for this field.
+
         **Polling strategy:** For fast results, poll every 2–5 seconds. For background
         processing, poll every 30–60 seconds.
       tags: [Batches]
@@ -602,7 +611,7 @@ components:
   schemas:
     Table:
       type: object
-      required: [id, name, workspaceId, workspaceName, rowCount, columns, createdAt, updatedAt]
+      required: [id, name, workspaceId, workspaceName, rowCount, columns, defaultFilters, defaultSort, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -792,6 +801,8 @@ components:
           description: |
             Enriched row data. Only present when `status` is `"complete"`.
             Row keys are column slugs — use the `columns` map to resolve display names.
+            All rows for the batch are returned in one response (see operation description
+            for the relationship to per-request insert limits).
         failures:
           $ref: "#/components/schemas/BatchFailures"
         creditsUsed:
@@ -934,18 +945,42 @@ components:
     RateLimited:
       description: Rate limit exceeded.
       headers:
-        X-RateLimit-Limit:
+        X-RateLimit-Limit-IP:
           schema:
             type: integer
-          description: Maximum requests allowed in the window.
-        X-RateLimit-Remaining:
+          description: IP bucket — maximum requests allowed in the window.
+        X-RateLimit-Remaining-IP:
           schema:
             type: integer
-          description: Requests remaining in the current window.
-        X-RateLimit-Reset:
+          description: IP bucket — requests remaining in the current window.
+        X-RateLimit-Reset-IP:
           schema:
             type: integer
-          description: Unix timestamp when the rate limit window resets.
+          description: IP bucket — Unix timestamp when the window resets.
+        X-RateLimit-Limit-Global:
+          schema:
+            type: integer
+          description: Organization bucket — maximum requests allowed in the window.
+        X-RateLimit-Remaining-Global:
+          schema:
+            type: integer
+          description: Organization bucket — requests remaining in the current window.
+        X-RateLimit-Reset-Global:
+          schema:
+            type: integer
+          description: Organization bucket — Unix timestamp when the window resets.
+        X-RateLimit-Limit-Insert:
+          schema:
+            type: integer
+          description: Insert bucket — maximum requests allowed in the window (write routes only).
+        X-RateLimit-Remaining-Insert:
+          schema:
+            type: integer
+          description: Insert bucket — requests remaining in the current window.
+        X-RateLimit-Reset-Insert:
+          schema:
+            type: integer
+          description: Insert bucket — Unix timestamp when the window resets.
       content:
         application/json:
           schema:
