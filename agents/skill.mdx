@@ -1,0 +1,19 @@
+---
+title: "Install the skill"
+description: "Teach your AI coding assistant to drive the v2 API for you."
+---
+
+If you drive this API from an AI coding assistant like Cursor or Claude Code, install the
+Origami skill. It teaches your assistant the v2 calls — when to start an agent, how to
+poll, and when to fall back to the free v1 reads — so you can just ask it for a list and
+let it handle the rest.
+
+## Install
+
+```bash
+curl -fsSL https://origami.chat/skills/install.sh | sh
+```
+
+The installer detects Cursor and Claude Code in the current project (and your per-user
+config under `$HOME`). Set `ORIGAMI_API_KEY` in your shell or `.env`, then re-run any time
+to update.

@@ -98,15 +98,5 @@ See [Reading data](/reading-data) for filtering, sorting, and CSV export.
 
 ## Install the skill (optional)
 
-If you drive this API from an AI coding assistant like Cursor or Claude Code, install the
-Origami skill. It teaches your assistant the calls above — when to start an agent, how to
-poll, and when to fall back to the free v1 reads — so you can just ask it for a list and
-let it handle the rest.
-
-```bash
-curl -fsSL https://origami.chat/skills/install.sh | sh
-```
-
-The installer detects Cursor and Claude Code in the current project (and your per-user
-config under `$HOME`). Set `ORIGAMI_API_KEY` in your shell or `.env` and re-run any time
-to update.
+If you drive this API from an AI coding assistant, install the [Origami skill](/agents/skill)
+so it can handle the calls above for you.
