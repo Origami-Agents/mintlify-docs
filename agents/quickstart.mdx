@@ -1,0 +1,112 @@
+---
+title: "Quickstart"
+description: "Start an agent, poll for the result, follow up, and fetch the data."
+---
+
+Create an API key under **Settings → API keys** (you need a paid plan), then set it:
+
+```bash
+export ORIGAMI_API_KEY=og_live_your_key_here
+```
+
+## Start an agent
+
+Send a brief to [`POST /api/v2/agents`](/agents/reference/create-agent). This creates the
+agent and starts its first run.
+
+```bash
+curl -X POST https://origami.chat/api/v2/agents \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "prompt": "Find 20 SaaS founders in Austin who raised seed in the last 6 months." }'
+```
+
+You get `202 Accepted` with the run already `running`. Keep the `agent.id` and `run.id`
+from the response — you'll need both.
+
+## Poll for the result
+
+The agent works in the background, so poll
+[`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run) until `status` is no
+longer `running`. Each `running` response carries a `Retry-After` header (15 seconds) —
+wait that long between polls. Polling is free.
+
+```bash
+while true; do
+  RESP=$(curl -fsSL -D /tmp/headers \
+    "https://origami.chat/api/v2/agents/$AGENT_ID/runs/$RUN_ID" \
+    -H "Authorization: Bearer $ORIGAMI_API_KEY")
+  [ "$(echo "$RESP" | jq -r '.status')" != "running" ] && break
+  WAIT=$(grep -i '^retry-after:' /tmp/headers | awk '{print $2}' | tr -d '\r')
+  sleep "${WAIT:-15}"
+done
+echo "$RESP" | jq .
+```
+
+## Read the response
+
+When the run finishes, check two things on the run object:
+
+1. **Questions** — if `todo.pendingQuestions[]` isn't empty, the agent needs you to
+   clarify something before it continues. Answer it with a follow-up run.
+2. **Results** — `response.tables[]` lists every table the agent built or changed, each
+   with a `url` you can open in Origami.
+
+```json
+{
+  "status": "completed",
+  "response": {
+    "text": "Found 18 Austin SaaS founders who raised seed recently.",
+    "tables": [
+      { "id": "tbl_77", "name": "Austin Seed Founders", "leadCount": 18,
+        "url": "https://origami.chat/workspace/ws_4a9b?table=tbl_77" }
+    ]
+  },
+  "todo": { "pendingQuestions": [], "nextActions": [] }
+}
+```
+
+## Follow up
+
+To answer a question or ask for more, send another run to the same agent with
+[`POST /api/v2/agents/{id}/runs`](/agents/reference/send-run). It keeps the same workspace
+and conversation, so just say what's next.
+
+```bash
+curl -X POST https://origami.chat/api/v2/agents/$AGENT_ID/runs \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "prompt": "For each founder, also find their LinkedIn URL.",
+        "focusTableIds": ["'$TABLE_ID'"] }'
+```
+
+Poll it the same way. Need to stop one mid-run? Call
+[`POST /api/v2/agents/{id}/cancel`](/agents/reference/cancel-run) — whatever it built so
+far is kept.
+
+## Fetch the data
+
+The agent stores results in tables. To pull the rows, hand the table id to the v1 Data
+API — it's free and needs no agent:
+
+```bash
+curl "https://origami.chat/api/v1/tables/$TABLE_ID/rows?pageSize=100" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+See [Reading data](/reading-data) for filtering, sorting, and CSV export.
+
+## Install the skill (optional)
+
+If you drive this API from an AI coding assistant like Cursor or Claude Code, install the
+Origami skill. It teaches your assistant the calls above — when to start an agent, how to
+poll, and when to fall back to the free v1 reads — so you can just ask it for a list and
+let it handle the rest.
+
+```bash
+curl -fsSL https://origami.chat/skills/install.sh | sh
+```
+
+The installer detects Cursor and Claude Code in the current project (and your per-user
+config under `$HOME`). Set `ORIGAMI_API_KEY` in your shell or `.env` and re-run any time
+to update.

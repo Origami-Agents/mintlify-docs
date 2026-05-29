@@ -1,0 +1,1324 @@
+openapi: 3.1.0
+info:
+  title: Origami Agent API
+  version: "2.0"
+  description: |
+    The Origami **Agent API** (v2) lets you spin up Origami's AI worker
+    programmatically — send it a natural-language prompt, get back a
+    structured summary of what it did. Pair it with the
+    [Data API (v1)](./openapi-v1) for reading rows out of the tables
+    your agent builds.
+
+    **v1 is the data plane. v2 is the agent plane.** Most integrations
+    use both: v2 to drive work, v1 to read results.
+
+    | Want to... | Version |
+    | --- | --- |
+    | Build a list / enrich rows from a prompt | **v2** |
+    | Inspect what an agent did | **v2** |
+    | Read rows out of a table | **v1** |
+    | Insert raw rows into an existing table (CSV / CRM sync) | **v1** |
+    | Check credit balance | **v1** |
+
+    ## Transport — async by default
+
+    `POST /agents` and `POST /agents/:id/runs` respond `202 Accepted`
+    with the initial run object (`status: "running"`) as soon as the
+    run is admitted. The actual agent work runs in the background.
+    Callers poll `GET /agents/:id/runs/:runId` until `status !==
+    "running"` to read the terminal state.
+
+    Every endpoint returns plain `application/json`. There is no
+    NDJSON, no heartbeats, no `tail -1`, no pre-stream vs in-stream
+    error branches. Closing the HTTP socket has no effect on the run
+    — there is no `abortOnDisconnect` knob.
+
+    SDKs hide the polling — `await origami.agents.create({ prompt })`
+    returns the final terminal `Run` object. Direct REST consumers
+    poll `GET /agents/:id/runs/:runId` and honor the `Retry-After`
+    header it returns while the run is still `running` (currently
+    `15` seconds). The header is omitted on terminal responses —
+    that absence is the signal to stop polling. Runs typically take
+    1–5 minutes; polling faster than the hint does not make a run
+    finish sooner.
+
+    ## Rate limits
+
+    Same layers as v1: **per IP** (300 req/min) and **per organization**
+    (100 req/min). The real scarce resource for agent runs is the
+    per-org concurrent-agent slot — see `CONCURRENT_LIMIT_EXCEEDED`.
+
+    | Scope | Limit |
+    |-------|-------|
+    | Per client IP | **300 requests / minute** |
+    | Per organization | **100 requests / minute** |
+    | Concurrent runs (per organization) | **plan-tunable** (1 on starter, 3 on pro, 10 on scale, 20 on ultra, unlimited on enterprise) |
+
+    Rate-limit headers (`X-RateLimit-Limit-{IP|Global}`,
+    `X-RateLimit-Remaining-*`, `X-RateLimit-Reset-*`) and `Retry-After`
+    are inherited from v1.
+
+    ## Plan-tier policy
+
+    Agent-loop knobs (`maxSteps`, `timeoutSeconds`) are **not** request
+    parameters — they're internal config gated by the plan tier. The
+    chat agent's intrinsic 20-minute `AGENT_TIMEOUT_MS` is the wall-
+    clock ceiling.
+
+    | Plan | Default model | Available models | internal maxSteps |
+    | --- | --- | --- | --- |
+    | `starter` | `origami-lite` | `origami-lite` | 30 |
+    | `pro` | `origami-max` | `origami-lite`, `origami-max` | 50 |
+    | `scale` | `origami-max` | `origami-lite`, `origami-max` | 75 |
+    | `ultra` | `origami-max` | `origami-lite`, `origami-max` | 100 |
+    | `enterprise` | `origami-max` | `origami-lite`, `origami-max` | 200 |
+
+    ## Errors
+
+    All error codes are `UPPERCASE_SNAKE_CASE` and live on `code`. The
+    response body always has `error` (human-readable) and `code`;
+    error-specific fields (e.g. `creditsRequired`, `topUpUrl`,
+    `currentRun`, `activeSessions`) live alongside at the top level
+    when they're stable parts of the contract.
+
+    Non-`completed` terminal *run* states (`timed_out`, `errored`,
+    `cancelled`, `needs_input`, `step_cap_hit`) are surfaced on the
+    `Run` object's single `status` field — not as HTTP error codes.
+    Callers branch on the run object.
+
+servers:
+  - url: https://origami.chat/api/v2
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Agents
+    description: Create, list, and archive AI workers (a.k.a. agents).
+  - name: Runs
+    description: Send prompts to an agent, poll status, and cancel.
+  - name: Tables
+    description: Read table state and lifetime credit cost.
+
+paths:
+  /agents:
+    post:
+      tags: [Agents]
+      summary: Create an agent and admit its first run
+      description: |
+        Creates a new agent (and, if `workspaceId` is null and no
+        `focusTableIds` are passed, an auto-created workspace), inserts
+        a synthetic user message carrying the prompt, claims the
+        per-org concurrent slot, and spawns the agent work in the
+        background. Responds `202 Accepted` with the initial run
+        object (`status: "running"`). Poll
+        `GET /agents/{id}/runs/{runId}` until `status !== "running"`.
+      operationId: createAgentAndRun
+      x-mint:
+        href: /agents/reference/create-agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '202':
+          description: Run admitted; agent work is in the background.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent, run, workspace]
+                properties:
+                  agent: { $ref: '#/components/schemas/AgentSummary' }
+                  run: { $ref: '#/components/schemas/Run' }
+                  workspace:
+                    type: object
+                    required: [id, name, createdAt, createdByApi]
+                    properties:
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+                      createdAt: { type: string, format: date-time }
+                      createdByApi:
+                        type: boolean
+                        description: True when the server auto-created this workspace for the agent. False when the caller supplied `workspaceId`.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '402':
+          $ref: '#/components/responses/InsufficientCredits'
+        '403':
+          description: Workspace limit reached while auto-creating an API workspace.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                  - example:
+                      error: Workspace limit reached (10/10). Pass an existing workspaceId or upgrade your plan.
+                      code: WORKSPACE_LIMIT_REACHED
+        '429':
+          $ref: '#/components/responses/ConcurrentLimit'
+    get:
+      tags: [Agents]
+      summary: List agents
+      operationId: listAgents
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 0, default: 0 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: A page of agents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agents, pagination]
+                properties:
+                  agents:
+                    type: array
+                    items: { $ref: '#/components/schemas/Agent' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /agents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [Agents]
+      summary: Get an agent
+      operationId: getAgent
+      responses:
+        '200':
+          description: The agent and its last run summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
+        '404':
+          $ref: '#/components/responses/AgentNotFound'
+    delete:
+      tags: [Agents]
+      summary: Archive an agent (soft-delete)
+      description: |
+        Soft-deletes the agent. **If the agent's auto-created workspace
+        has no other active agents**, the workspace is also
+        soft-deleted in the same transaction. Hand-supplied workspaces
+        (those passed in `workspaceId` on create) are never
+        auto-deleted.
+      operationId: archiveAgent
+      responses:
+        '200':
+          description: Archived
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent, workspace]
+                properties:
+                  agent:
+                    type: object
+                    required: [id, deletedAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      deletedAt: { type: string, format: date-time }
+                  workspace:
+                    type: object
+                    required: [id, deletedAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      deletedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+                        description: |
+                          ISO timestamp when the workspace cascade-deleted
+                          along with the agent, or `null` when it was
+                          preserved (hand-supplied, or still has other
+                          active agents). Only auto-created workspaces are
+                          ever cascade-deleted.
+        '404':
+          $ref: '#/components/responses/AgentNotFound'
+
+  /agents/{id}/runs:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [Runs]
+      summary: Send a follow-up run
+      description: |
+        Admits a new run on an existing agent. Same agent, same
+        workspace, same conversation context. Responds `202 Accepted`
+        with the initial run object; agent work runs in the
+        background. Use this to answer a `needs_input` question — the
+        agent picks up from the prior conversation.
+      operationId: sendRun
+      x-mint:
+        href: /agents/reference/send-run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendRunRequest' }
+      responses:
+        '202':
+          description: Run admitted; agent work is in the background.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run]
+                properties:
+                  run: { $ref: '#/components/schemas/Run' }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '402':
+          $ref: '#/components/responses/InsufficientCredits'
+        '404':
+          $ref: '#/components/responses/AgentNotFound'
+        '409':
+          $ref: '#/components/responses/AgentBusy'
+        '429':
+          $ref: '#/components/responses/ConcurrentLimit'
+    get:
+      tags: [Runs]
+      summary: List runs for an agent
+      operationId: listRuns
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 0, default: 0 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: A page of run summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs, pagination]
+                properties:
+                  runs:
+                    type: array
+                    items: { $ref: '#/components/schemas/RunSummary' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '404':
+          $ref: '#/components/responses/AgentNotFound'
+
+  /agents/{id}/runs/{runId}:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [Runs]
+      summary: Get a run (poll for status / final result)
+      description: |
+        Returns the run object. Works while the run is still running
+        (`status: "running"` with partial `actions[]`) and after it
+        terminates. This is the primary read path — every call after
+        `POST /agents` polls this endpoint until `status !== "running"`.
+      operationId: getRun
+      x-mint:
+        href: /agents/reference/get-run
+      parameters:
+        - in: query
+          name: include
+          description: |
+            CSV-style list of opt-in projections. Recognized tokens:
+              - `stats` — embed table economics on every
+                `response.tables[]` entry (per-table + per-column).
+              - `transcript` — return the full public transcript on
+                `response.transcript`.
+            Combine: `?include=stats,transcript`. Unknown tokens are
+            ignored.
+          schema:
+            type: string
+            example: stats,transcript
+      responses:
+        '200':
+          description: The run object
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: |
+                Poll-pacing hint in seconds, present ONLY while the run
+                is non-terminal (`status: "running"`) — currently `15`.
+                Honor it as the canonical poll cadence. Omitted on
+                terminal responses; that absence is the signal to stop
+                polling.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        '404':
+          $ref: '#/components/responses/RunNotFound'
+
+  /agents/{id}/tables:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [Tables]
+      summary: List tables in the agent's workspace
+      description: |
+        The fallback discovery surface in v2. The run object only
+        carries `response.tables[]` for tables a specific run
+        *touched* (empty when the run made no mutations or stopped on
+        a question), so callers that need "every table this agent has
+        access to" use this endpoint instead.
+
+        Each entry is a full TableObject — same shape as
+        `GET /api/v2/tables/{id}` and the same shape embedded under
+        `Run.response.tables[]`. Pass `?include=stats` to attach the
+        economics block (per-table + per-column).
+
+        Scoped to the agent's own workspace; a caller cannot probe
+        arbitrary workspaces through this path. No pagination in
+        v2.0 — an agent's workspace is rarely more than a handful of
+        tables.
+      operationId: listAgentTables
+      parameters:
+        - in: query
+          name: include
+          description: |
+            Pass `stats` to attach per-table economics on every entry
+            (creditsPerLead, qualification, funnel, lead sources).
+          schema:
+            type: string
+            example: stats
+      responses:
+        '200':
+          description: Tables in the agent's workspace
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workspaceId, tables]
+                properties:
+                  workspaceId: { type: string, format: uuid }
+                  tables:
+                    type: array
+                    items: { $ref: '#/components/schemas/Table' }
+        '404':
+          $ref: '#/components/responses/AgentNotFound'
+
+  /tables/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Tables]
+      summary: Get a table — name, leadCount, columns, credits, optional economics
+      description: |
+        The canonical "what's in this table and what did it cost?"
+        surface in v2. Same shape as the entries in
+        `Run.response.tables[]` and `GET /agents/{id}/tables`.
+
+        Default shape is lite — `leadCount`, `columns[]` with
+        per-column `credits.lifetimeUsed`, table-level
+        `credits.lifetimeUsed` (sum of the column breakdown). Pass
+        `?include=stats` to attach the economics block — the same
+        numbers the UI shows at the top of the table
+        (creditsPerLead, qualification breakdown, funnel, lead
+        sources, ...).
+
+        `credits.lifetimeUsed` accumulates across every agent run
+        that ever populated cells on this table — it is the unit a
+        human thinks in when they ask how much a list cost. It does
+        NOT include still-active cell-run reservations; wait for the
+        relevant run to terminate before reading the final number.
+
+        Scoped to the API key's org. There is no API-owned filter on
+        tables, so any non-deleted table in your org is fetchable.
+        For programmatic row reads, use
+        [`GET /api/v1/tables/{id}/rows`](https://origami.chat/reading-data).
+      operationId: getTable
+      x-mint:
+        href: /agents/reference/get-table
+      parameters:
+        - in: query
+          name: include
+          description: |
+            Pass `stats` to attach the economics block (creditsPerLead,
+            qualification, funnel, lead sources) plus per-column `stats`
+            and `qualification`.
+          schema:
+            type: string
+            example: stats
+      responses:
+        '200':
+          description: The table object
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Table' }
+        '404':
+          description: Table not found in this org (or soft-deleted)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                  - example:
+                      error: Table not found
+                      code: TABLE_NOT_FOUND
+
+  /agents/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [Runs]
+      summary: Cancel the agent's currently-active run (idempotent, cooperative)
+      description: |
+        The per-agent mutex guarantees at most one in-flight run per
+        agent, so cancel takes only the agentId. Wraps the same
+        machinery the UI's stop route uses (`markCancelling` + Redis
+        `cancelStream` publish).
+
+        Idempotent: returns `200` whether the agent has an active
+        run, is already cancelling, or has no in-flight run at all.
+        The response body always carries the latest run object — the
+        just-cancelled one if there was one, otherwise the agent's
+        most recent terminal run.
+      operationId: cancelActiveRun
+      x-mint:
+        href: /agents/reference/cancel-run
+      responses:
+        '200':
+          description: |
+            The (possibly updated) run object, or `{ "run": null }`
+            when the agent has never had a run.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run]
+                properties:
+                  run:
+                    nullable: true
+                    allOf:
+                      - $ref: '#/components/schemas/Run'
+        '404':
+          $ref: '#/components/responses/AgentNotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: og_live_...
+
+  parameters:
+    AgentId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    RunId:
+      in: path
+      name: runId
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_\\-]{1,128}$'
+        description: |
+          Run ids are stable text (not UUID) sourced from
+          `chat_stream.id`. v2-issued ids carry a `v2_run-` prefix.
+          Use the literal value returned in prior responses.
+
+  schemas:
+    CreateAgentRequest:
+      type: object
+      required: [prompt]
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          description: Optional human-readable label. Auto-generated from prompt if absent.
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        workspaceId:
+          type: string
+          format: uuid
+          nullable: true
+        focusTableIds:
+          type: array
+          items: { type: string, format: uuid }
+          maxItems: 50
+          default: []
+          description: |
+            Table ids to focus the agent on. When the caller also
+            supplies `workspaceId`, every id must belong to that
+            workspace. When `workspaceId` is omitted, the workspace
+            is inferred from the first id.
+        model:
+          type: string
+          enum: [origami-lite, origami-max]
+          description: |
+            Public model id. Plan-aware default — highest model unlocked
+            on the caller's plan (`origami-lite` for `starter`,
+            `origami-max` for `pro`+). Resolved server-side to an
+            internal chat-agent model; the response's `request.model`
+            echoes the public id (`origami-lite` or `origami-max`),
+            never an internal name. Legacy aliases `origami-fast` and
+            `origami-mid` are still accepted and normalized to
+            `origami-lite`.
+    SendRunRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: { type: string, minLength: 1, maxLength: 10000 }
+        focusTableIds:
+          type: array
+          items: { type: string, format: uuid }
+          maxItems: 50
+          default: []
+        model:
+          type: string
+          enum: [origami-lite, origami-max]
+    Pagination:
+      type: object
+      required: [page, pageSize, total, hasMore]
+      description: |
+        Standard pagination envelope used by every v2 list endpoint.
+        Callers know to stop when `hasMore === false`; `total` is
+        the unfiltered row count for the listing's scope.
+      properties:
+        page: { type: integer, minimum: 0 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        hasMore: { type: boolean }
+    AgentSummary:
+      type: object
+      required: [id, name, workspaceId, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        workspaceId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+    Agent:
+      allOf:
+        - $ref: '#/components/schemas/AgentSummary'
+        - type: object
+          required: [apiKeyOwned, lastRun]
+          properties:
+            apiKeyOwned:
+              type: boolean
+              description: |
+                True iff this agent's `chat_session` row has a non-null
+                `created_by_api_key_id` — i.e. it was created by the
+                API and is owned by the caller's org. Always `true` on
+                v2 read paths today; surfaced for forward compatibility.
+            lastRun:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/RunSummary'
+    RunStatus:
+      type: string
+      enum: [running, completed, needs_input, step_cap_hit, incomplete, cancelled, errored, timed_out]
+      description: |
+        Single discriminator for the run's lifecycle. `needs_input`
+        means the run completed cleanly but the agent's last
+        assistant message included an `ask-questions` tool call;
+        answer by sending a follow-up run on the same agent.
+        `incomplete` means the model finished the step but the AI
+        SDK could not parse a tool call it tried to emit (or it hit
+        the output-token cap mid-tool-call), so the multi-step loop
+        ended without the work being done — recoverable by sending
+        a follow-up run on the same agent. Deploy restarts are
+        auto-followed server-side, so callers never observe a
+        `superseded` value.
+    RunSummary:
+      type: object
+      required: [id, agentId, status, prompt, model, steps, startedAt]
+      properties:
+        id: { type: string }
+        agentId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        prompt:
+          type: string
+          description: |
+            The user prompt that drove this run, truncated to 200
+            characters with an ellipsis when longer. Suitable for a
+            run-history list item; for the full prompt use Get Run.
+        model:
+          type: string
+          enum: [origami-lite, origami-max]
+          description: |
+            Public model id the run actually executed on. When the run
+            has no assistant message yet (still admitting), falls back
+            to the plan default.
+        steps: { $ref: '#/components/schemas/RunSteps' }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+    RunSteps:
+      type: object
+      required: [completed, max]
+      description: |
+        Agent step progress. `completed` is the number of multi-step
+        loop iterations the agent has actually executed; `max` is the
+        plan-determined hard cap. Once `completed === max`, the run's
+        `status` becomes `step_cap_hit`.
+      properties:
+        completed: { type: integer, minimum: 0 }
+        max: { type: integer, minimum: 1 }
+    RunRequest:
+      type: object
+      required: [prompt, model, focusTableIds]
+      properties:
+        prompt: { type: string }
+        model:
+          type: string
+          enum: [origami-lite, origami-max]
+          description: |
+            Public model id — `origami-lite` or `origami-max`. Echoes
+            the caller's request (after legacy-alias normalization)
+            or the plan default when the request omitted `model`.
+            Internal chat-agent ids (e.g. `origami-lobotomized`) are
+            never surfaced here.
+        focusTableIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: Echoed verbatim from the request.
+    RunResponse:
+      type: object
+      required: [text, actions, tables, transcript, transcriptTruncated]
+      description: |
+        `null` while `status === "running"`. Once terminal, an object
+        with the agent's cleaned prose, the structured workspace
+        mutations it performed (`actions[]`), the full TableObjects
+        for every touched table (`tables[]`), and (optionally) the
+        full message transcript. `tables[]` is the resolved version
+        of `actions[].tableId` — same shape as
+        `GET /api/v2/tables/{id}`, fanned out server-side. Pass
+        `?include=stats` on the Get Run call to attach economics on
+        each embedded TableObject.
+      properties:
+        text:
+          type: string
+          nullable: true
+          description: |
+            Cleaned user-facing assistant text — internal markup
+            (`<internal>`, `<plan>`, `<suggestions>`, history-tool
+            markers) is stripped server-side, identical to the
+            stripping in `transcript` content. `null` when `status`
+            is `errored` or `timed_out` (we suppress partial prose on
+            failed runs).
+        actions:
+          type: array
+          items: { $ref: '#/components/schemas/RunAction' }
+          description: |
+            Structured workspace-mutation actions the agent performed,
+            in the order they fired. Projected from the persisted
+            `data-*` parts the chat-agent's execute-code event
+            listener writes onto each assistant message — the same
+            audit trail the desktop UI renders. Empty when the run
+            did no workspace mutations.
+        tables:
+          type: array
+          items: { $ref: '#/components/schemas/Table' }
+          description: |
+            Full TableObjects for every table this run touched
+            (derived from `actions[].tableId` plus any
+            `focusTableIds` the caller passed). Same shape as a
+            single `GET /api/v2/tables/{id}` response. Empty when
+            the run touched no tables.
+        transcriptTruncated:
+          type: boolean
+          description: |
+            True when `transcript` was truncated to its hard cap.
+            Always present (defaults to `false`) so consumers don't
+            have to do a presence-check on every poll.
+        transcript:
+          type: array
+          items: { $ref: '#/components/schemas/TranscriptMessage' }
+          nullable: true
+          description: |
+            Full message history projected onto the surface a desktop
+            user with **dev mode off** would see. Specifically:
+
+              - Assistant text is stripped of internal markup
+                (`<internal>`, `<plan>`, `<suggestions>`, history-tool
+                markers).
+              - Tool calls are limited to the interactive widgets a
+                non-dev user actually sees: `ask-questions`,
+                `present-plan`, `contact-support`,
+                `suggest-document-write`. The code the agent ran
+                (`execute-code`), the VFS reads (`list-dir`,
+                `read-file`, `grep`), and operational tools
+                (`flag-session`) are dropped along with their results.
+              - `reasoning` parts (dev-only in the UI) are dropped.
+              - Empty assistant bubbles (text that was entirely
+                internal markup and no public tool calls) are dropped.
+
+            Opt-in only via `?include=transcript` on
+            `GET /agents/{id}/runs/{runId}`. Default is `null`.
+    RunTodo:
+      type: object
+      required: [pendingQuestions, nextActions]
+      properties:
+        pendingQuestions:
+          type: array
+          items: { $ref: '#/components/schemas/PendingQuestion' }
+          description: |
+            Structured questions extracted from the agent's most
+            recent `ask-questions` tool call, if any. When non-empty
+            AND the chat_stream completed cleanly, `status` is
+            promoted to `"needs_input"`. Answer by sending a
+            follow-up run on the same agent
+            (`POST /agents/{id}/runs`) with the user's answer as
+            `prompt` — any free-text string is accepted; the agent
+            parses it as natural language.
+        nextActions:
+          type: array
+          items: { $ref: '#/components/schemas/NextAction' }
+          description: |
+            Structured next-action suggestions extracted from the
+            agent's `<suggestions><action ...>...</action></suggestions>`
+            block, if any. Surface the `label` to the user; act on
+            `type` (when present) as a typed CTA the host can fire
+            directly.
+    Run:
+      allOf:
+        - $ref: '#/components/schemas/RunSummary'
+        - type: object
+          required: [workspaceId, request, response, todo]
+          properties:
+            workspaceId: { type: string, format: uuid }
+            request: { $ref: '#/components/schemas/RunRequest' }
+            response:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/RunResponse'
+            todo: { $ref: '#/components/schemas/RunTodo' }
+    NextAction:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+          description: Natural-language label the agent suggested.
+        type:
+          type: string
+          enum: [upload_csv, find_more_leads, export_csv, input_required, send_messages]
+          description: |
+            Optional typed CTA the host can act on directly. When
+            absent, treat as a plain text suggestion the user can
+            ask the agent to do next.
+        tableSlug:
+          type: string
+          description: |
+            Optional table reference for table-scoped types (e.g.
+            `export_csv`).
+    RunAction:
+      type: object
+      required: [type, tableId]
+      description: |
+        A single workspace-mutation event the agent performed. Discriminated
+        by `type`; `tableId` is always present. Other fields are type-specific.
+        v2 wire vocabulary speaks "leads", not "rows": the row-mutation
+        action types are `leads_added`, `leads_deleted`, `leads_restored`.
+      properties:
+        type:
+          type: string
+          enum:
+            - table_created
+            - column_added
+            - columns_updated
+            - columns_deleted
+            - leads_added
+            - leads_deleted
+            - leads_restored
+            - columns_restored
+            - table_restored
+        tableId:
+          type: string
+          format: uuid
+        tableName:
+          type: string
+          nullable: true
+          description: Present on `table_created` and `table_restored`.
+        columnId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Present on `column_added`.
+        columnName:
+          type: string
+          nullable: true
+          description: Present on `column_added`.
+        count:
+          type: integer
+          description: |
+            Present on `columns_deleted`, `leads_deleted`, `leads_restored`,
+            `columns_restored`. Number of items affected.
+        leadCount:
+          type: integer
+          nullable: true
+          description: Present on `leads_added`. Number of leads inserted.
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Present on `columns_deleted` and `leads_deleted`.
+    PendingQuestion:
+      type: object
+      required: [type, question, suggestedAnswers, freeformOption]
+      properties:
+        type:
+          type: string
+          enum: [single-choice, confirm]
+          description: |
+            Question type the agent emitted. `single-choice` lists
+            options the user is expected to pick from; `confirm` is a
+            single approval prompt.
+        question:
+          type: string
+          description: Natural-language question text to surface to the user.
+        suggestedAnswers:
+          type: array
+          items: { type: string }
+          description: |
+            Answers the agent proposed, in the order it listed them.
+            For `single-choice` these are the agent's options; for
+            `confirm` it is the single-entry array `["Confirm"]`. This
+            is NOT a hard menu — the caller may always reply with any
+            free-text via the follow-up run (see `freeformOption`).
+            The field is here so a host LLM can bias its follow-up
+            `prompt` toward what the agent expected.
+        freeformOption:
+          type: string
+          description: |
+            A stable, agent-agnostic CTA string clients can render as
+            a final "your own answer" button next to `suggestedAnswers`.
+            Always the literal `"Or something else"` in v2.0.
+          example: Or something else
+    TableColumn:
+      type: object
+      required: [id, name, type, slug, autoTrigger, credits, cells]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type:
+          type: string
+          description: |
+            Column kind. Common values: `static` (user-entered), `code`
+            (user-TS that runs per row, includes enrichments and
+            scoring), plus other internal-typed kinds for future
+            extensibility. Treat as an open string and key off
+            well-known values you need to special-case.
+        slug:
+          type: string
+          nullable: true
+          description: Stable url-safe slug, or null when the column has none.
+        autoTrigger:
+          type: boolean
+          description: |
+            True when the column runs automatically on new leads.
+            False for columns that only run when explicitly invoked
+            (e.g. exports, manual-trigger code columns).
+        credits:
+          $ref: '#/components/schemas/CreditsLifetime'
+          description: |
+            Per-column historical cost. The table-level
+            `credits.lifetimeUsed` is the sum of every column's
+            `credits.lifetimeUsed` — the per-column breakdown is the
+            primary surface for "which column is driving cost?".
+        cells:
+          $ref: '#/components/schemas/CellsLiveness'
+          description: |
+            Per-column liveness. `running > 0` means cells in this
+            column are still being processed; the agent should not
+            conclude "data not found" on empty cells until
+            `running === 0`.
+        stats:
+          $ref: '#/components/schemas/ColumnStats'
+          description: Present only when caller passes `?include=stats`.
+        qualification:
+          $ref: '#/components/schemas/ColumnQualification'
+          description: |
+            Present only when caller passes `?include=stats` AND this
+            column has a relevance condition (i.e. acts as a quality
+            filter).
+    CellsLiveness:
+      type: object
+      required: [running, errored]
+      description: |
+        Snapshot of cell-pipeline activity. The v2 run-finished signal
+        is independent of the cell-pipeline-finished signal — when a
+        run completes, downstream cells often still enrich in the
+        background. Surfacing these counts lets the agent distinguish
+        "still working on it" from "tried and failed", which is the
+        difference between waiting and reporting a negative result.
+      properties:
+        running:
+          type: integer
+          minimum: 0
+          description: |
+            Number of cells currently being processed (a `cell_run` is
+            in `waiting`, `queued`, or `running` for that cell).
+            `running > 0` means the agent should NOT report "no data
+            found" — wait and re-read.
+        errored:
+          type: integer
+          minimum: 0
+          description: |
+            Number of cells that hit a settled failure. Includes
+            `errored`, `out_of_credits`, `subscription_required`, and
+            `connection_required`. The user-driven `stopped` state is
+            intentionally excluded — it's a cancellation, not a
+            failure to surface.
+    CreditsLifetime:
+      type: object
+      required: [lifetimeUsed]
+      properties:
+        lifetimeUsed:
+          type: integer
+          description: |
+            Sum of all settled cell-run charges, in credits. Stable
+            and additive — once a row enrichment finishes it never
+            moves backwards. Reservations (in-flight cell_runs) are
+            not included.
+    ColumnStats:
+      type: object
+      required: [avgCreditsPerRun, callRate, totalRuns]
+      properties:
+        avgCreditsPerRun:
+          type: number
+          description: Average credits charged when this column actually runs.
+        callRate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Fraction of leads that triggered this column (0-1).
+        totalRuns:
+          type: integer
+          description: Lifetime count of cell runs feeding the average.
+    ColumnQualification:
+      type: object
+      required: [pass, fail, unsure, total]
+      properties:
+        pass: { type: integer }
+        fail: { type: integer }
+        unsure: { type: integer }
+        total: { type: integer }
+    Table:
+      type: object
+      required: [id, workspaceId, name, leadCount, columns, credits, cells, url, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        name: { type: string }
+        leadCount:
+          type: integer
+          description: |
+            Non-deleted row count. v2 wire vocabulary speaks "leads"
+            instead of "rows"; the underlying DB column is still
+            `rows`.
+        columns:
+          type: array
+          items: { $ref: '#/components/schemas/TableColumn' }
+        credits:
+          $ref: '#/components/schemas/CreditsLifetime'
+          description: |
+            Lifetime credit cost across every cell. Equals the sum of
+            every `columns[].credits.lifetimeUsed`.
+        cells:
+          $ref: '#/components/schemas/CellsLiveness'
+          description: |
+            Table-level liveness rollup — sums every
+            `columns[].cells`. `running > 0` means at least one cell
+            on the table is still being processed (e.g., enrichment
+            kicked off by a recent run hasn't fully settled). The
+            calling agent should treat this as "still working", not
+            "no data found".
+        url:
+          type: string
+          format: uri
+          description: Deep link a human can open. For programmatic row reads, use `GET /api/v1/tables/{id}/rows`.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        stats:
+          $ref: '#/components/schemas/TableStats'
+          description: Present only when caller passes `?include=stats`.
+    TableStats:
+      type: object
+      required:
+        - creditsPerLead
+        - creditsPerQualifiedLead
+        - findMoreEstimatedCredits
+        - qualification
+        - funnel
+        - running
+        - leadSources
+        - hasUnknownTotalWithMore
+      description: |
+        Forward-looking table economics — the same numbers the desktop
+        UI shows at the top of the table. Only present on responses
+        that opted in via `?include=stats`.
+      properties:
+        creditsPerLead:
+          type: number
+          description: Estimated credits per sourced lead (pre-qualification).
+        creditsPerQualifiedLead:
+          type: number
+          description: |
+            Estimated credits per qualified lead, including the loss
+            from dedup, exclusion, and filter cascade.
+        findMoreEstimatedCredits:
+          type: number
+          description: Per-execution cost of the "Find More" code, in credits.
+        qualification:
+          $ref: '#/components/schemas/TableQualificationStats'
+          nullable: true
+          description: |
+            Null when the table has no relevance conditions configured.
+        funnel: { $ref: '#/components/schemas/TableFunnelStats' }
+        running: { $ref: '#/components/schemas/TableRunningStats' }
+        leadSources:
+          type: array
+          items: { $ref: '#/components/schemas/TableLeadSourceStats' }
+        hasUnknownTotalWithMore:
+          type: boolean
+          description: |
+            True when ≥1 active lead source has unknown TAM AND
+            `has_more=true` (e.g. Twitter / LinkedIn post search).
+            Consumers should render "X found (more available)" instead
+            of a numeric TAM when set.
+    TableQualificationStats:
+      type: object
+      required:
+        - rate
+        - fetchRate
+        - qualifiedLeads
+        - effectiveLeadsPerQualified
+        - estimatedQualifiedLeads
+      properties:
+        rate:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+        fetchRate:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+          description: Filter-only qualification rate (excludes dedup / exclusion).
+        qualifiedLeads: { type: integer }
+        effectiveLeadsPerQualified:
+          type: number
+          description: Empirical leads-processed per qualified lead.
+        estimatedQualifiedLeads:
+          type: integer
+          nullable: true
+    TableFunnelStats:
+      type: object
+      required:
+        - totalSourcedLeads
+        - postStaticLeads
+        - dedupedLeads
+        - dedupRate
+        - excludedLeads
+        - excludedRate
+      properties:
+        totalSourcedLeads: { type: integer }
+        postStaticLeads:
+          type: integer
+          description: Leads surviving dedup + exclusion + required static filters.
+        dedupedLeads: { type: integer }
+        dedupRate:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+        excludedLeads: { type: integer }
+        excludedRate:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 1
+    TableRunningStats:
+      type: object
+      required: [runningLeads, oldestActiveRunStartedAt]
+      properties:
+        runningLeads:
+          type: integer
+          description: Leads with active (queued / running / waiting) cell runs.
+        oldestActiveRunStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+    TableLeadSourceStats:
+      type: object
+      required: [id, name, avgCreditsPerLead, totalCredits, totalLeads, source]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        avgCreditsPerLead: { type: number }
+        totalCredits: { type: number }
+        totalLeads: { type: integer }
+        source:
+          type: string
+          enum: [historical, estimate]
+          description: |
+            `historical` when the average is derived from real
+            cost_events; `estimate` when it was computed by static
+            regex analysis of the lead source's TypeScript code.
+    TranscriptMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content: { type: string }
+        toolCalls:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              input: {}
+        toolCallId: { type: string }
+        name: { type: string }
+        result: { type: string }
+        truncated: { type: boolean }
+    ErrorEnvelope:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorEnvelope'
+              - example:
+                  error: Missing API key
+                  code: UNAUTHORIZED
+    ValidationError:
+      description: |
+        Bad request body or semantic validation failure. Route-level
+        codes include `VALIDATION_ERROR`, `MODEL_NOT_AVAILABLE`,
+        `UNKNOWN_WORKSPACE`, `UNKNOWN_TABLE`, and
+        `WORKSPACE_TABLE_MISMATCH`.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorEnvelope'
+              - example:
+                  error: Invalid request body
+                  code: VALIDATION_ERROR
+                  details:
+                    issues:
+                      - path: prompt
+                        message: Required
+    InsufficientCredits:
+      description: |
+        Org out of credits at admission time. `402` can also be
+        `SUBSCRIPTION_REQUIRED` when the plan does not include API
+        access; both shapes use the same `{ error, code }` envelope.
+      content:
+        application/json:
+          schema:
+            type: object
+            # Two distinct 402 shapes share this slot: INSUFFICIENT_CREDITS
+            # carries the credit fields below; SUBSCRIPTION_REQUIRED (plan
+            # lacks API access) carries only { error, code, hint }. Only
+            # `error` + `code` are common to both, so the credit fields are
+            # optional here.
+            required: [error, code]
+            properties:
+              error: { type: string }
+              code: { type: string, enum: [INSUFFICIENT_CREDITS, SUBSCRIPTION_REQUIRED] }
+              creditsRequired: { type: integer }
+              creditsAvailable: { type: integer }
+              topUpUrl: { type: string }
+              message: { type: string }
+              hint: { type: string }
+            example:
+              error: Insufficient credits
+              code: INSUFFICIENT_CREDITS
+              creditsRequired: 5
+              creditsAvailable: 2
+              topUpUrl: https://origami.chat/settings/billing?source=api
+              message: |
+                Origami needs at least 5 credits to start any run; you have 2.
+                Top up: https://origami.chat/settings/billing?source=api
+    AgentBusy:
+      description: A run is already in flight on this agent
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string, enum: [AGENT_BUSY] }
+              currentRun:
+                type: object
+                properties:
+                  id: { type: string }
+                  startedAt: { type: string, format: date-time }
+    ConcurrentLimit:
+      description: Org-wide concurrent-agent cap reached (shared with the Origami UI).
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds. Median wall-clock of the last 200 terminal runs in this org (fallback 60).
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              code: { type: string, enum: [CONCURRENT_LIMIT_EXCEEDED] }
+              limit: { type: integer }
+              activeSessions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    agentId: { type: string }
+                    name: { type: string }
+                    startedAt: { type: string, format: date-time }
+              canUpgrade: { type: boolean }
+    AgentNotFound:
+      description: Agent not found (or belongs to another org)
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorEnvelope'
+              - example:
+                  error: Agent not found
+                  code: AGENT_NOT_FOUND
+    RunNotFound:
+      description: Run not found
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorEnvelope'
+              - example:
+                  error: Run not found
+                  code: RUN_NOT_FOUND

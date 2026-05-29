@@ -29,8 +29,29 @@
         ]
       },
       {
-        "tab": "API Reference",
-        "openapi": "openapi-v1.yaml"
+        "tab": "v1 API reference",
+        "groups": [
+          {
+            "group": "Data API (v1)",
+            "openapi": "openapi-v1.yaml"
+          }
+        ]
+      },
+      {
+        "tab": "v2 API beta",
+        "groups": [
+          {
+            "group": "Guide",
+            "pages": [
+              "agents/index",
+              "agents/quickstart"
+            ]
+          },
+          {
+            "group": "API reference",
+            "openapi": "openapi-v2.yaml"
+          }
+        ]
       }
     ]
   },

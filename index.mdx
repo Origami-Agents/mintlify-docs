@@ -3,12 +3,17 @@ title: "Introduction"
 description: "Enrich company and people data programmatically with the Origami API."
 ---
 
-The Origami API lets you push raw company or contact data into your Origami tables and get
-enriched results back — emails, employee counts, technographics, and everything else your
-table's enrichment columns produce.
+The Origami API comes in two halves. This **Data API (v1)** is for moving data in and out
+of tables you already have: push in raw company or contact rows, let your table's columns
+enrich them, and read the results back — emails, employee counts, technographics, and
+whatever else those columns produce. Reads are free.
+
+If you want the AI to *do the work* — research a market, find leads, decide which columns
+to add — that's the [Agent API (v2)](/agents). Hand it a brief and it builds the table for
+you.
 
 <Tip>
-  Need the full API spec? [Download the OpenAPI specification](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v1.yaml) for use with AI coding assistants, client generators, or Postman.
+  Need the full spec? [Download the OpenAPI file](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v1.yaml) for AI coding assistants, client generators, or Postman.
 </Tip>
 
 ## How it works
@@ -41,11 +46,11 @@ table's enrichment columns produce.
   <Card title="Authentication" icon="key" href="/authentication">
     How to create and manage API keys.
   </Card>
-  <Card title="API Reference" icon="code" href="/api-reference">
-    Full endpoint documentation with interactive playground.
+  <Card title="Reading data" icon="table" href="/reading-data">
+    Filter, sort, and export enriched rows.
   </Card>
-  <Card title="Credit balance" icon="coins" href="/api-reference/credits/get-credit-balance">
-    Check your remaining credits before enriching.
+  <Card title="Agent API" icon="robot" href="/agents">
+    Drive Origami's AI worker from a plain-English brief.
   </Card>
 </CardGroup>
 

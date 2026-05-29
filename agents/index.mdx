@@ -1,0 +1,31 @@
+---
+title: "v2 API beta"
+description: "Run Origami's agent from your own code: send a brief, get back a table."
+---
+
+<Note>
+  The v2 API is in **beta**. Endpoints and response shapes may still change.
+</Note>
+
+The v2 API runs Origami's agent from your code. You send it a brief in plain English,
+it does the research and builds a table, and you read the result back.
+
+You work with three resources, all documented in the reference:
+
+- **[Agent](/agents/reference/create-agent)** — a worker in your org. Create one and reuse it.
+- **[Run](/agents/reference/send-run)** — one brief and the work that follows. An agent does one run at a time.
+- **[Table](/agents/reference/get-table)** — what the agent builds. Read its rows through the [v1 Data API](/reading-data).
+
+## Start here
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/agents/quickstart">
+    Start an agent, follow up, poll, and fetch the data — end to end.
+  </Card>
+  <Card title="Create an agent" icon="plus" href="/agents/reference/create-agent">
+    The first call, and every field it takes.
+  </Card>
+</CardGroup>
+
+Want the AI to do the work? Use v2. Already have the data and just need to read it or
+drop rows in? That's the free [v1 Data API](/reading-data).
