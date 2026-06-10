@@ -53,6 +53,14 @@ info:
     | `SUBSCRIPTION_REQUIRED` | 402 | Feature requires a plan upgrade. |
     | `INTERNAL_ERROR` | 500 | Unexpected server error. |
 
+    ## Webhooks
+
+    Receive sequencer events (sends, replies, connection acceptances) via
+    HTTPS POST. Configure endpoints in **Settings → Developers → Webhooks**
+    or read the [webhooks reference](/webhooks/overview). The full event
+    catalog ships as [openapi-webhooks.yaml](/openapi-webhooks.yaml) so
+    coding agents can author working receivers from the spec.
+
   contact:
     name: Origami Support
     url: https://origami.chat
