@@ -1,0 +1,65 @@
+---
+title: "Webhooks overview"
+description: "Receive signed event POSTs from Origami when sequencer activity happens."
+---
+
+<Note>
+  Webhooks are in **beta**. Event types and payload shapes may still
+  change. We'll email orgs with active endpoints before any breaking
+  change.
+</Note>
+
+When a sequencer event happens, Origami POSTs a signed JSON envelope to
+a URL you configure in **Settings → Developers → Webhooks**.
+
+## v1 events
+
+| Event | When it fires | Default in picker |
+|-------|---------------|-------------------|
+| `sequence.message.sent` | A sequencer email or LinkedIn DM finished sending. | off |
+| `sequence.reply.received` | An inbound email or LinkedIn DM matched an outbound sequence. | on |
+| `sequence.connection.requested` | A sequencer LinkedIn invite was sent. | off |
+| `sequence.connection.accepted` | A LinkedIn invite from a sequence was accepted. | on |
+| `webhook.test` | You clicked **Test endpoint** in the dashboard. Always delivered, regardless of subscription. | n/a |
+
+Subscribe to specific event types, the `sequence.*` wildcard, the
+`sequence.connection.*` sub-wildcard, or `*` (everything, including
+future event types).
+
+## Delivery guarantees
+
+- **At-least-once delivery.** A single event can produce more than one
+  POST under partial failure. Receivers **must** dedupe on the
+  `webhook-id` header.
+- **Up to 10 attempts** following the [Standard Webhooks spec retry
+  table](/webhooks/retries) — initial + 9 retries with ±15% jitter
+  spanning roughly 75 hours.
+- **`410 Gone` auto-disables** the endpoint per the spec. Re-enable
+  manually from the dashboard.
+- **`webhook-id` is stable across retries.** `webhook-timestamp` is
+  recomputed per attempt — use it for replay protection (±5 min).
+
+## Signing
+
+Every request carries three headers:
+
+| Header | Purpose |
+|--------|---------|
+| `webhook-id` | Unique per event delivery. **Idempotency key.** |
+| `webhook-timestamp` | Unix seconds at dispatch time. |
+| `webhook-signature` | One or more `v1,<base64>` HMAC-SHA256 signatures. |
+
+Signed string is `{webhook-id}.{webhook-timestamp}.{raw-body}`, keyed
+by the base64-decoded bytes of your `whsec_…` secret (after stripping
+the `whsec_` prefix). This is the canonical
+[Standard Webhooks](https://www.standardwebhooks.com/) scheme — verify
+with Svix's `standardwebhooks` SDK or the copy-paste snippets in
+[signature verification](/webhooks/signatures) (Node, Python, Go, Ruby,
+Rust, `curl + openssl`).
+
+## Next steps
+
+- [Set up an endpoint](/webhooks/setup)
+- [Verify signatures](/webhooks/signatures)
+- [Retry behavior](/webhooks/retries)
+- [Per-event payload reference](/webhooks/events/message-sent)

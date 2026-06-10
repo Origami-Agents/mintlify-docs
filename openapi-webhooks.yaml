@@ -1,0 +1,462 @@
+openapi: 3.1.0
+info:
+  title: Origami Webhooks
+  version: "1.0"
+  description: |
+    Outbound events Origami POSTs to your servers when sequencer activity
+    happens. Verify the `webhook-signature` header on every request
+    before acting on the payload — see the signatures guide. Receivers
+    MUST dedupe on the `webhook-id` header. Configure endpoints in
+    **Settings → Developers → Webhooks**.
+
+webhooks:
+  sequence.message.sent:
+    post:
+      operationId: sequenceMessageSent
+      summary: Message sent
+      description: |
+        Origami POSTs this event to your configured URL when a sequencer
+        email or LinkedIn DM finishes sending.
+
+        Branch on `data.channel` (`"email"` or `"linkedin"`) to handle
+        the two channels. `data.message.provider_id` is the
+        provider-side identifier (Gmail `msgId`, LinkedIn chat message
+        id), useful for correlating with the user's own inbox.
+
+        **Default in the picker:** off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SequenceMessageSentEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+  sequence.reply.received:
+    post:
+      operationId: sequenceReplyReceived
+      summary: Reply received
+      description: |
+        Origami POSTs this event when an inbound email or LinkedIn DM
+        matches one of your active sequences. We also stop any matched
+        sequences that should pause on reply; `data.newly_stopped` tells
+        you whether THIS event's sequence transitioned to stopped.
+
+        Branch on `data.channel` to handle email vs LinkedIn.
+
+        **`outreach_target` is the replier.** `sender` is the identity
+        they replied TO (your mailbox or LinkedIn account).
+
+        **Multi-match case.** A single inbound can legitimately match
+        more than one sequence if you ran parallel campaigns to the
+        same recipient. The primary match goes on `sequence_id` +
+        `newly_stopped`; tail matches appear on
+        `additional_matched_sequence_ids` (and
+        `additional_newly_stopped_sequence_ids` when relevant). Both
+        `additional_*` fields are **absent** from the payload in the
+        common single-match case.
+
+        **Default in the picker:** on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SequenceReplyReceivedEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+  sequence.connection.requested:
+    post:
+      operationId: sequenceConnectionRequested
+      summary: Connection requested
+      description: |
+        Origami POSTs this event when a sequencer LinkedIn invite is
+        sent. Shape mirrors `Message sent`: `channel` is always
+        `"linkedin"` and `data.message.body` carries the optional
+        connection note (a LinkedIn premium feature — empty string
+        when no note was attached).
+
+        **Default in the picker:** off. The event duplicates state
+        the user already triggered. Useful for full lifecycle
+        visibility, especially paired with `sequence.connection.accepted`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SequenceConnectionRequestedEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+  sequence.connection.accepted:
+    post:
+      operationId: sequenceConnectionAccepted
+      summary: Connection accepted
+      description: |
+        Origami POSTs this event when a LinkedIn invite from a sequence
+        is accepted by the recipient.
+
+        `requested_at` is when you sent the invite. `connected_at` is
+        when they accepted. `connected_at - requested_at` is the
+        acceptance latency, useful for reporting.
+
+        **Default in the picker:** on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SequenceConnectionAcceptedEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+  webhook.test:
+    post:
+      operationId: webhookTest
+      summary: Test event
+      description: |
+        Origami POSTs this event when you click **Test endpoint** in the
+        dashboard. Always delivered regardless of subscription — it's a
+        wire-connectivity check, not a business signal.
+
+        Receivers can ignore test traffic in production analytics by
+        filtering on `type === "webhook.test"`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookTestEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+components:
+  schemas:
+    EnvelopeId:
+      type: string
+      format: uuid
+      description: |
+        Equal to the `webhook-id` HTTP header. Stable across retries —
+        use for receiver-side deduplication.
+
+    EventTimestamp:
+      type: string
+      format: date-time
+      description: |
+        Event time (when the business action happened), set once at
+        publish and replayed on retries. NOT the dispatch time — that
+        lives in the `webhook-timestamp` HTTP header and is recomputed
+        per send.
+
+    OutreachTarget:
+      type: object
+      description: |
+        Identity of the person the sequencer is reaching out to.
+        `table_id` / `row_id` / `column_id` point back to the workspace
+        row that triggered the message. `column_id` is the trigger
+        column and is stable across all events for a given outreach,
+        so it can serve as a campaign identifier. Channel-specific
+        identity fields are null when not applicable.
+      properties:
+        table_id:
+          type: string
+          format: uuid
+          nullable: true
+        row_id:
+          type: string
+          format: uuid
+          nullable: true
+        column_id:
+          type: string
+          format: uuid
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        linkedin_urn:
+          type: string
+          nullable: true
+        linkedin_slug:
+          type: string
+          nullable: true
+      required: [table_id, row_id, column_id, email, linkedin_urn, linkedin_slug]
+
+    Sender:
+      type: object
+      description: |
+        The sending identity inside your org — which mailbox or
+        LinkedIn account this event is associated with.
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+        linkedin_slug:
+          type: string
+          nullable: true
+        display_name:
+          type: string
+          nullable: true
+      required: [email, linkedin_slug, display_name]
+
+    SendMessage:
+      type: object
+      properties:
+        subject:
+          type: string
+          nullable: true
+          description: Email only. Null for LinkedIn channels.
+        body:
+          type: string
+        body_truncated:
+          type: boolean
+          description: True when the body was truncated before serialization (60KB cap).
+        provider_id:
+          type: string
+          nullable: true
+          description: Provider-side message id (Gmail msgId, LinkedIn chat message id).
+        thread_id:
+          type: string
+          nullable: true
+        rfc_message_id:
+          type: string
+          nullable: true
+          description: Email-only RFC 5322 Message-ID, when known.
+      required:
+        - subject
+        - body
+        - body_truncated
+        - provider_id
+        - thread_id
+        - rfc_message_id
+
+    SendEventData:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [email, linkedin]
+        sequence_id:
+          type: string
+          format: uuid
+        step_index:
+          type: integer
+          minimum: 0
+        message_id:
+          type: string
+          format: uuid
+        outreach_target:
+          $ref: "#/components/schemas/OutreachTarget"
+        sender:
+          $ref: "#/components/schemas/Sender"
+        message:
+          $ref: "#/components/schemas/SendMessage"
+        sent_at:
+          type: string
+          format: date-time
+      required:
+        - channel
+        - sequence_id
+        - step_index
+        - message_id
+        - outreach_target
+        - sender
+        - message
+        - sent_at
+
+    ReplyMessage:
+      type: object
+      properties:
+        subject:
+          type: string
+          nullable: true
+        body:
+          type: string
+        body_truncated:
+          type: boolean
+        received_at:
+          type: string
+          format: date-time
+        thread_id:
+          type: string
+          nullable: true
+        provider_id:
+          type: string
+          nullable: true
+      required:
+        - subject
+        - body
+        - body_truncated
+        - received_at
+        - thread_id
+        - provider_id
+
+    ReplyEventData:
+      type: object
+      description: |
+        Common case mirrors the send events: one `sequence_id` plus a
+        `newly_stopped` flag. The optional `additional_*` arrays only
+        appear when a single inbound matched more than one outbound
+        sequence (rare; parallel campaigns to the same recipient).
+      properties:
+        channel:
+          type: string
+          enum: [email, linkedin]
+        sequence_id:
+          type: string
+          format: uuid
+          description: Primary matched sequence — what most receivers attribute the reply to.
+        newly_stopped:
+          type: boolean
+          description: True if `sequence_id` transitioned to stopped on this reply.
+        additional_matched_sequence_ids:
+          type: array
+          description: Other sequences this reply also matched. Present only when more than one matched.
+          items:
+            type: string
+            format: uuid
+        additional_newly_stopped_sequence_ids:
+          type: array
+          description: Subset of `additional_matched_sequence_ids` that also flipped to stopped. Present only when non-empty.
+          items:
+            type: string
+            format: uuid
+        outreach_target:
+          $ref: "#/components/schemas/OutreachTarget"
+        sender:
+          $ref: "#/components/schemas/Sender"
+        reply_message:
+          $ref: "#/components/schemas/ReplyMessage"
+      required:
+        - channel
+        - sequence_id
+        - newly_stopped
+        - outreach_target
+        - sender
+        - reply_message
+
+    ConnectionAcceptedData:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [linkedin]
+        sequence_id:
+          type: string
+          format: uuid
+        step_index:
+          type: integer
+          minimum: 0
+        original_message_id:
+          type: string
+          format: uuid
+          description: The outbound message id of the connect_request that was accepted.
+        outreach_target:
+          $ref: "#/components/schemas/OutreachTarget"
+        sender:
+          $ref: "#/components/schemas/Sender"
+        requested_at:
+          type: string
+          format: date-time
+          description: When the invite was originally sent.
+        connected_at:
+          type: string
+          format: date-time
+      required:
+        - channel
+        - sequence_id
+        - step_index
+        - original_message_id
+        - outreach_target
+        - sender
+        - requested_at
+        - connected_at
+
+    WebhookTestData:
+      type: object
+      properties:
+        triggered_by:
+          type: string
+          enum: [dashboard]
+        triggered_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+      required: [triggered_by, triggered_at, message]
+
+    # Per-event envelopes. Each pins the `type` literal so receivers can
+    # narrow on `type` and get the matching `data` shape.
+
+    SequenceMessageSentEnvelope:
+      type: object
+      properties:
+        type:
+          const: sequence.message.sent
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/SendEventData"
+      required: [type, id, timestamp, data]
+
+    SequenceReplyReceivedEnvelope:
+      type: object
+      properties:
+        type:
+          const: sequence.reply.received
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/ReplyEventData"
+      required: [type, id, timestamp, data]
+
+    SequenceConnectionRequestedEnvelope:
+      type: object
+      properties:
+        type:
+          const: sequence.connection.requested
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/SendEventData"
+      required: [type, id, timestamp, data]
+
+    SequenceConnectionAcceptedEnvelope:
+      type: object
+      properties:
+        type:
+          const: sequence.connection.accepted
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/ConnectionAcceptedData"
+      required: [type, id, timestamp, data]
+
+    WebhookTestEnvelope:
+      type: object
+      properties:
+        type:
+          const: webhook.test
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/WebhookTestData"
+      required: [type, id, timestamp, data]
