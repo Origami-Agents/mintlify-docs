@@ -1,0 +1,66 @@
+---
+title: "Set up an endpoint"
+description: "Configure a webhook endpoint in Settings → Developers and verify it with a test event."
+---
+
+<Note>
+  Webhooks are in **beta**. Event types and payload shapes may still
+  change. We'll email orgs with active endpoints before any breaking
+  change.
+</Note>
+
+## 1. Open the webhooks section
+
+Go to **Settings → Developers → Webhooks**. You need to be an org
+admin on a paid plan; otherwise the section is hidden.
+
+## 2. Create an endpoint
+
+Click **New endpoint**:
+
+| Field | Notes |
+|-------|-------|
+| **URL** | Must be `https://` in production. IP literals, non-default ports, userinfo, and cloud metadata hostnames are rejected at submit. DNS is re-checked at dial time. |
+| **Description** | Free-form, up to 500 characters. Surfaces in the list. |
+| **Event types** | Pick from the tree, or check **Everything** / **Sequencer** for wildcards. |
+
+## 3. Copy the signing secret
+
+The `whsec_…` secret is revealed in a modal **once**. Copy it now —
+losing it means rotating to get a new one.
+
+The list view only shows the last 4 chars (`•••• abcd`).
+
+## 4. Send a test event
+
+Open the endpoint drawer and click **Test endpoint**. Origami sends a
+`webhook.test` event (always delivered, regardless of subscriptions).
+The deliveries drawer opens; the row should flip to **delivered**.
+
+Non-2xx responses enter the retry schedule and surface the response
+status + first 2 KB of body in the deliveries view.
+
+## 5. Rotate the secret
+
+**Rotate secret** in the endpoint drawer. The previous secret stays
+valid for **24 hours** so you can roll without dropped deliveries.
+During the window, `webhook-signature` carries two `v1,<sig>` entries
+— accept either match.
+
+## 6. Disable or delete
+
+- **Disable** pauses delivery without losing the URL or event
+  subscriptions.
+- **Delete** removes the endpoint. Any pending deliveries are dropped.
+  Delivery history stays for audit.
+
+## Per-organization cap
+
+Up to **5 active endpoints per organization**. Contact support if you
+need more.
+
+## Next steps
+
+- [Verify webhook signatures](/webhooks/signatures)
+- [Retry behavior](/webhooks/retries)
+- [Per-event payload reference](/webhooks/events/message-sent)

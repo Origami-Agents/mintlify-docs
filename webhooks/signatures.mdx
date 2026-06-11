@@ -1,0 +1,305 @@
+---
+title: "Verify webhook signatures"
+description: "Standard-Webhooks-compatible HMAC-SHA256 verifier snippets in Node, Python, Go, Ruby, Rust, and curl + openssl."
+---
+
+<Note>
+  Webhooks are in **beta**. Event types and payload shapes may still
+  change. We'll email orgs with active endpoints before any breaking
+  change.
+</Note>
+
+Every webhook POST carries a signature so you can prove it came from
+Origami. Verify it before acting on the payload.
+
+## The contract
+
+The signature is HMAC-SHA256 over the literal string
+`{webhook-id}.{webhook-timestamp}.{raw-body}` using your `whsec_…`
+secret as the HMAC key. We follow the canonical
+[Standard Webhooks](https://www.standardwebhooks.com/) spec exactly:
+the prefix `whsec_` is stripped and the remainder is base64-decoded to
+produce the raw key bytes. The Svix `standardwebhooks` SDK does this
+for you in one line.
+
+Headers we send on every POST:
+
+| Header | Example |
+|--------|---------|
+| `webhook-id` | `01J7C5K…` |
+| `webhook-timestamp` | `1717800000` (Unix seconds) |
+| `webhook-signature` | `v1,k1XF9w==` (or `v1,k1XF9w== v1,Yh9hSQ==` during rotation) |
+
+Receivers SHOULD:
+
+1. Reject signatures whose timestamp is more than ±5 minutes from
+   their wall clock (replay protection).
+2. Compare with a **constant-time** byte equality (`timingSafeEqual`
+   in Node, `hmac.compare_digest` in Python, etc.). A `==` compare
+   leaks the signature byte-by-byte.
+3. Accept **any** `v1,<sig>` entry as a match — during a 24h secret
+   rotation we send two.
+4. Dedupe on `webhook-id` with at least 5 minutes of retention.
+
+## One-line option (Node)
+
+```bash
+npm install standardwebhooks
+```
+
+```ts
+import { Webhook } from 'standardwebhooks'
+const wh = new Webhook(process.env.ORIGAMI_WEBHOOK_SECRET!) // whsec_…
+const payload = wh.verify(req.rawBody, req.headers) // throws on failure
+```
+
+The `standardwebhooks` SDK strips the prefix and base64-decodes the
+remainder for you, so it's byte-for-byte compatible with the snippets
+below.
+
+## Node
+
+```ts
+import crypto from 'crypto'
+
+const PREFIX = 'whsec_'
+
+function keyForSecret(secret: string): Buffer {
+  const body = secret.startsWith(PREFIX) ? secret.slice(PREFIX.length) : secret
+  return Buffer.from(body, 'base64')
+}
+
+export function verifyOrigamiWebhook({
+  rawBody,
+  webhookId,
+  webhookTimestamp,
+  webhookSignature,
+  secret,
+}: {
+  rawBody: Buffer | string
+  webhookId: string
+  webhookTimestamp: string
+  webhookSignature: string
+  secret: string
+}): boolean {
+  const ts = Number(webhookTimestamp)
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false
+
+  const body = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8')
+  const signed = `${webhookId}.${webhookTimestamp}.${body}`
+  const expected = crypto
+    .createHmac('sha256', keyForSecret(secret))
+    .update(signed, 'utf8')
+    .digest('base64')
+
+  for (const match of webhookSignature.matchAll(/v1,([^\s,]+)/g)) {
+    const provided = match[1]
+    if (provided.length !== expected.length) continue
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) return true
+    } catch {
+      /* defensive */
+    }
+  }
+  return false
+}
+```
+
+## Python
+
+```python
+import base64
+import hmac
+import time
+from hashlib import sha256
+
+PREFIX = "whsec_"
+
+def key_for_secret(secret: str) -> bytes:
+    body = secret[len(PREFIX):] if secret.startswith(PREFIX) else secret
+    return base64.b64decode(body)
+
+def verify_origami_webhook(*, raw_body: bytes, webhook_id: str,
+                           webhook_timestamp: str, webhook_signature: str,
+                           secret: str) -> bool:
+    try:
+        ts = int(webhook_timestamp)
+    except ValueError:
+        return False
+    if abs(time.time() - ts) > 300:
+        return False
+
+    signed = f"{webhook_id}.{webhook_timestamp}.".encode("utf-8") + raw_body
+    expected = base64.b64encode(
+        hmac.new(key_for_secret(secret), signed, sha256).digest()
+    ).decode("utf-8")
+
+    import re
+    for m in re.finditer(r"v1,([^\s,]+)", webhook_signature):
+        provided = m.group(1)
+        if hmac.compare_digest(provided, expected):
+            return True
+    return False
+```
+
+## Go
+
+```go
+package origamiwebhook
+
+import (
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/base64"
+    "regexp"
+    "strconv"
+    "strings"
+    "time"
+)
+
+const prefix = "whsec_"
+
+func keyForSecret(secret string) ([]byte, error) {
+    body := strings.TrimPrefix(secret, prefix)
+    return base64.StdEncoding.DecodeString(body)
+}
+
+var v1Re = regexp.MustCompile(`v1,([^\s,]+)`)
+
+func Verify(rawBody []byte, webhookID, webhookTimestamp, webhookSignature, secret string) bool {
+    ts, err := strconv.ParseInt(webhookTimestamp, 10, 64)
+    if err != nil {
+        return false
+    }
+    if delta := time.Now().Unix() - ts; delta > 300 || delta < -300 {
+        return false
+    }
+
+    key, err := keyForSecret(secret)
+    if err != nil {
+        return false
+    }
+    mac := hmac.New(sha256.New, key)
+    mac.Write([]byte(webhookID + "." + webhookTimestamp + "."))
+    mac.Write(rawBody)
+    expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+    for _, m := range v1Re.FindAllStringSubmatch(webhookSignature, -1) {
+        if hmac.Equal([]byte(m[1]), []byte(expected)) {
+            return true
+        }
+    }
+    return false
+}
+```
+
+## Ruby
+
+```ruby
+require "base64"
+require "openssl"
+
+PREFIX = "whsec_"
+
+def key_for_secret(secret)
+  body = secret.start_with?(PREFIX) ? secret[PREFIX.length..-1] : secret
+  Base64.decode64(body)
+end
+
+def verify_origami_webhook(raw_body:, webhook_id:, webhook_timestamp:,
+                           webhook_signature:, secret:)
+  ts = Integer(webhook_timestamp) rescue (return false)
+  return false if (Time.now.to_i - ts).abs > 300
+
+  signed = "#{webhook_id}.#{webhook_timestamp}.#{raw_body}"
+  expected = Base64.strict_encode64(
+    OpenSSL::HMAC.digest("sha256", key_for_secret(secret), signed)
+  )
+
+  webhook_signature.scan(/v1,([^\s,]+)/).any? do |(provided)|
+    next false if provided.bytesize != expected.bytesize
+    # OpenSSL.fixed_length_secure_compare ships on Ruby 2.7+ and is
+    # the constant-time byte comparator. Pre-2.7 receivers can use
+    # the pure-Ruby loop in the standardwebhooks gem.
+    OpenSSL.fixed_length_secure_compare(provided, expected)
+  end
+end
+```
+
+## Rust
+
+```rust
+use base64::{engine::general_purpose, Engine};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const PREFIX: &str = "whsec_";
+
+fn key_for_secret(secret: &str) -> Option<Vec<u8>> {
+    let body = secret.strip_prefix(PREFIX).unwrap_or(secret);
+    general_purpose::STANDARD.decode(body).ok()
+}
+
+pub fn verify(
+    raw_body: &[u8],
+    webhook_id: &str,
+    webhook_timestamp: &str,
+    webhook_signature: &str,
+    secret: &str,
+) -> bool {
+    let ts: i64 = match webhook_timestamp.parse() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if (now - ts).abs() > 300 {
+        return false;
+    }
+
+    let key = match key_for_secret(secret) {
+        Some(k) => k,
+        None => return false,
+    };
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(&key).expect("HMAC accepts any key size");
+    mac.update(webhook_id.as_bytes());
+    mac.update(b".");
+    mac.update(webhook_timestamp.as_bytes());
+    mac.update(b".");
+    mac.update(raw_body);
+    let expected = general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+
+    webhook_signature
+        .split(|c: char| c == ' ' || c == ',')
+        .filter_map(|piece| piece.strip_prefix("v1,"))
+        // Constant-time compare: only equal-length byte slices may match.
+        .any(|provided| {
+            provided.len() == expected.len()
+                && constant_time_eq::constant_time_eq(
+                    provided.as_bytes(),
+                    expected.as_bytes(),
+                )
+        })
+}
+```
+
+## curl + openssl
+
+For ad-hoc verification of a captured payload (e.g. from a copy out of
+the dashboard's delivery drawer):
+
+```bash
+WEBHOOK_ID=01J7C5K…
+WEBHOOK_TIMESTAMP=1717800000
+RAW_BODY='{"type":"sequence.email.sent", …}'
+SECRET=whsec_XXXXXXXX
+KEY=$(printf '%s' "$SECRET" | sed 's/^whsec_//' | base64 -d)
+echo -n "${WEBHOOK_ID}.${WEBHOOK_TIMESTAMP}.${RAW_BODY}" \
+  | openssl dgst -sha256 -binary -hmac "$KEY" \
+  | base64
+# Compare to one of the v1,<sig> entries in `webhook-signature`.
+```

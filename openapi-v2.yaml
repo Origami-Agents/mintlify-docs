@@ -86,6 +86,14 @@ info:
     `Run` object's single `status` field — not as HTTP error codes.
     Callers branch on the run object.
 
+    ## Webhooks
+
+    Sequencer events fan out via HTTPS POSTs you configure in
+    **Settings → Developers → Webhooks**. See the
+    [webhooks reference](/webhooks/overview) and the machine-readable
+    [openapi-webhooks.yaml](/openapi-webhooks.yaml) spec for working
+    receiver scaffolding.
+
 servers:
   - url: https://origami.chat/api/v2
     description: Production
@@ -810,7 +818,7 @@ components:
           description: Natural-language label the agent suggested.
         type:
           type: string
-          enum: [upload_csv, find_more_leads, export_csv, input_required, send_messages]
+          enum: [upload_csv, find_more_leads, export_csv, input_required, send_messages, schedule_play]
           description: |
             Optional typed CTA the host can act on directly. When
             absent, treat as a plain text suggestion the user can

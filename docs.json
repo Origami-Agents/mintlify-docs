@@ -53,6 +53,30 @@
             "openapi": "openapi-v2.yaml"
           }
         ]
+      },
+      {
+        "tab": "Webhooks",
+        "groups": [
+          {
+            "group": "Guide",
+            "pages": [
+              "webhooks/overview",
+              "webhooks/setup",
+              "webhooks/signatures",
+              "webhooks/retries"
+            ]
+          },
+          {
+            "group": "Event reference",
+            "pages": [
+              "webhooks/events/message-sent",
+              "webhooks/events/reply-received",
+              "webhooks/events/connection-requested",
+              "webhooks/events/connection-accepted",
+              "webhooks/events/test"
+            ]
+          }
+        ]
       }
     ]
   },

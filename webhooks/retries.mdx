@@ -1,0 +1,93 @@
+---
+title: "Retries & idempotency"
+description: "The retry schedule, 410 Gone behavior, and the webhook-id idempotency key."
+---
+
+<Note>
+  Webhooks are in **beta**. Event types and payload shapes may still
+  change. We'll email orgs with active endpoints before any breaking
+  change.
+</Note>
+
+Delivery is **at-least-once**. If you return a retriable status
+(or time out / fail to respond), Origami re-delivers on a fixed
+schedule. Receivers MUST dedupe on the `webhook-id` header.
+
+## Retry schedule
+
+Standard Webhooks spec table. 10 attempts (initial + 9 retries),
+~75 hours cumulative, ±15% jitter per slot.
+
+| Attempt | Delay since previous | Cumulative |
+|--------:|---------------------:|-----------:|
+| 1 | immediate | 0 |
+| 2 | 5 s | 5 s |
+| 3 | 5 min | 5 min 5 s |
+| 4 | 30 min | 35 min 5 s |
+| 5 | 2 h | 2 h 35 min |
+| 6 | 5 h | 7 h 35 min |
+| 7 | 10 h | 17 h 35 min |
+| 8 | 14 h | ~31 h 35 min |
+| 9 | 20 h | ~51 h 35 min |
+| 10 | 24 h | ~75 h 35 min |
+
+After attempt 10, retries stop. The delivery shows up in the
+dashboard's deliveries panel as a failed attempt.
+
+## What triggers a retry
+
+| Your response | Outcome |
+|---------------|---------|
+| `2xx` | Successful delivery. |
+| `3xx` | Treated as a misconfigured endpoint and dropped. Origami does not follow redirects on webhook POSTs. |
+| `4xx` (not `408` / `429`) | Dropped — returning 4xx tells us "the request is bad" and we won't retry. |
+| `410 Gone` | **Auto-disables the endpoint** per the Standard Webhooks spec. Re-enable from the dashboard after fixing. |
+| `408`, `429`, `5xx` | Retried on the spec schedule. |
+| Timeout (30 s body) / network error | Same as `5xx`. |
+
+## Auto-disable
+
+If your endpoint fails too many deliveries in a row across roughly
+100 failed attempts (no successful delivery between), Origami
+auto-disables it. Re-enable from the dashboard once the receiver is
+fixed.
+
+## Idempotency: dedupe on `webhook-id`
+
+Every retry of the same delivery reuses the same `webhook-id`. Keep
+a short-retention set (5 minutes is plenty) of recently-seen ids:
+
+```ts
+const SEEN = new Set<string>()
+const TTL_MS = 5 * 60 * 1000
+
+app.post('/webhooks/origami', (req, res) => {
+  const webhookId = req.headers['webhook-id'] as string
+  if (SEEN.has(webhookId)) return res.status(200).end()
+  SEEN.add(webhookId)
+  setTimeout(() => SEEN.delete(webhookId), TTL_MS)
+  // ... handle event
+  res.status(200).end()
+})
+```
+
+Two distinct events for related state (an email send followed by a
+quick reply) carry **different** `webhook-id`s. Idempotency is
+per-delivery, not per-business-action.
+
+## Header `webhook-timestamp` vs envelope `timestamp`
+
+- **`webhook-timestamp`** (header) — dispatch time, recomputed every
+  send. Use it for **replay protection**: reject signatures more
+  than ±5 minutes off your wall clock. See
+  [signatures](/webhooks/signatures).
+- **`data.timestamp`** (envelope) — event time, stable across
+  retries. Use it when you want "when did the business action
+  happen?"
+
+## Replay from the dashboard
+
+If you missed events because of an outage on your side, open the
+deliveries panel and click **Redeliver** on the affected delivery.
+The retry comes through with the **same** `webhook-id`, so your
+idempotency layer correctly dedupes if you've already processed it.
