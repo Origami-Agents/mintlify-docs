@@ -12,6 +12,8 @@ info:
 webhooks:
   sequence.message.sent:
     post:
+      x-mint:
+        href: /webhooks/events/message-sent
       operationId: sequenceMessageSent
       summary: Message sent
       description: |
@@ -36,6 +38,8 @@ webhooks:
 
   sequence.reply.received:
     post:
+      x-mint:
+        href: /webhooks/events/reply-received
       operationId: sequenceReplyReceived
       summary: Reply received
       description: |
@@ -71,6 +75,8 @@ webhooks:
 
   sequence.connection.requested:
     post:
+      x-mint:
+        href: /webhooks/events/connection-requested
       operationId: sequenceConnectionRequested
       summary: Connection requested
       description: |
@@ -95,6 +101,8 @@ webhooks:
 
   sequence.connection.accepted:
     post:
+      x-mint:
+        href: /webhooks/events/connection-accepted
       operationId: sequenceConnectionAccepted
       summary: Connection accepted
       description: |
@@ -118,6 +126,8 @@ webhooks:
 
   webhook.test:
     post:
+      x-mint:
+        href: /webhooks/events/test
       operationId: webhookTest
       summary: Test event
       description: |

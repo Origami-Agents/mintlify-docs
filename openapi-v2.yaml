@@ -3,22 +3,28 @@ info:
   title: Origami Agent API
   version: "2.0"
   description: |
-    The Origami **Agent API** (v2) lets you spin up Origami's AI worker
-    programmatically — send it a natural-language prompt, get back a
-    structured summary of what it did. Pair it with the
-    [Data API (v1)](./openapi-v1) for reading rows out of the tables
-    your agent builds.
+    The Origami **v2 API** is the single canonical public surface,
+    organized into four segments — **Agents**, **Workspace**,
+    **Sequences**, and **Account**. Drive AI workers from a prompt,
+    read and write table data (rows, cells, upsert, batches), manage
+    documents and workspaces, control the sequencer and campaigns, run
+    recurring scheduled agents, and read account/credit state.
 
-    **v1 is the data plane. v2 is the agent plane.** Most integrations
-    use both: v2 to drive work, v1 to read results.
+    **v1 is deprecated** (still fully functional — no removal date in
+    this release). New integrations should target v2 only. See the
+    [v1 → v2 migration guide](./api-v1-to-v2-migration) for the route
+    map; in short:
 
-    | Want to... | Version |
+    | v1 | v2 |
     | --- | --- |
-    | Build a list / enrich rows from a prompt | **v2** |
-    | Inspect what an agent did | **v2** |
-    | Read rows out of a table | **v1** |
-    | Insert raw rows into an existing table (CSV / CRM sync) | **v1** |
-    | Check credit balance | **v1** |
+    | `GET /tables` | `GET /api/v2/tables` |
+    | `GET /tables/:id/rows` | `GET /api/v2/tables/:tableId/rows` |
+    | `POST /tables/:id/rows` (insert) | `POST /api/v2/tables/:tableId/rows/upsert` (upsert; no bare insert) |
+    | `GET /batches/:id` | `GET /api/v2/batches/:batchId` |
+    | `GET /credits` | `GET /api/v2/account/credits` |
+
+    Errors use the canonical envelope `{ error, code, details?, handoff? }`;
+    any 4xx the user can fix in-app carries a forwardable `handoff` link.
 
     ## Transport — async by default
 
@@ -108,10 +114,20 @@ tags:
     description: Send prompts to an agent, poll status, and cancel.
   - name: Tables
     description: Read table state and lifetime credit cost.
+  - name: Workspace
+    description: Workspaces, tables, columns, rows, cells, batches, and documents.
+  - name: Sequences
+    description: Read sequences, stop/delete them, and pause/resume campaigns.
+  - name: Scheduled agents
+    description: Recurring agents (cron) — CRUD, enable/disable, trigger, run history.
+  - name: Account
+    description: Org account state — plan, capabilities, credit balance.
 
 paths:
   /agents:
     post:
+      x-mint:
+        href: /agents/reference/create-agent
       tags: [Agents]
       summary: Create an agent and admit its first run
       description: |
@@ -123,8 +139,6 @@ paths:
         object (`status: "running"`). Poll
         `GET /agents/{id}/runs/{runId}` until `status !== "running"`.
       operationId: createAgentAndRun
-      x-mint:
-        href: /agents/reference/create-agent
       requestBody:
         required: true
         content:
@@ -259,6 +273,8 @@ paths:
     parameters:
       - $ref: '#/components/parameters/AgentId'
     post:
+      x-mint:
+        href: /agents/reference/send-run
       tags: [Runs]
       summary: Send a follow-up run
       description: |
@@ -268,8 +284,6 @@ paths:
         background. Use this to answer a `needs_input` question — the
         agent picks up from the prior conversation.
       operationId: sendRun
-      x-mint:
-        href: /agents/reference/send-run
       requestBody:
         required: true
         content:
@@ -327,6 +341,8 @@ paths:
       - $ref: '#/components/parameters/AgentId'
       - $ref: '#/components/parameters/RunId'
     get:
+      x-mint:
+        href: /agents/reference/get-run
       tags: [Runs]
       summary: Get a run (poll for status / final result)
       description: |
@@ -335,8 +351,6 @@ paths:
         terminates. This is the primary read path — every call after
         `POST /agents` polls this endpoint until `status !== "running"`.
       operationId: getRun
-      x-mint:
-        href: /agents/reference/get-run
       parameters:
         - in: query
           name: include
@@ -424,6 +438,8 @@ paths:
         required: true
         schema: { type: string, format: uuid }
     get:
+      x-mint:
+        href: /agents/reference/get-table
       tags: [Tables]
       summary: Get a table — name, leadCount, columns, credits, optional economics
       description: |
@@ -448,10 +464,8 @@ paths:
         Scoped to the API key's org. There is no API-owned filter on
         tables, so any non-deleted table in your org is fetchable.
         For programmatic row reads, use
-        [`GET /api/v1/tables/{id}/rows`](https://origami.chat/reading-data).
+        [`GET /api/v2/tables/{tableId}/rows`](https://origami.chat/reading-data).
       operationId: getTable
-      x-mint:
-        href: /agents/reference/get-table
       parameters:
         - in: query
           name: include
@@ -483,6 +497,8 @@ paths:
     parameters:
       - $ref: '#/components/parameters/AgentId'
     post:
+      x-mint:
+        href: /agents/reference/cancel-run
       tags: [Runs]
       summary: Cancel the agent's currently-active run (idempotent, cooperative)
       description: |
@@ -497,8 +513,6 @@ paths:
         just-cancelled one if there was one, otherwise the agent's
         most recent terminal run.
       operationId: cancelActiveRun
-      x-mint:
-        href: /agents/reference/cancel-run
       responses:
         '200':
           description: |
@@ -516,6 +530,512 @@ paths:
                       - $ref: '#/components/schemas/Run'
         '404':
           $ref: '#/components/responses/AgentNotFound'
+
+  # ── Workspace segment ────────────────────────────────────────────
+  /workspaces:
+    get:
+      tags: [Workspace]
+      summary: List workspaces (paginated)
+      operationId: listWorkspaces
+      responses:
+        '200': { description: A page of workspaces. }
+    post:
+      tags: [Workspace]
+      summary: Create a workspace
+      description: |
+        Create an empty workspace — a container that holds tables and
+        documents. You only need this to set up a workspace before adding
+        data to it; when you create an agent without a `workspaceId`, one is
+        made for you automatically.
+      operationId: createWorkspace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 80 }
+      responses:
+        '201': { description: 'The created workspace (id, name, url).' }
+        '403': { description: WORKSPACE_LIMIT_REACHED (carries an upgrade-plan handoff). }
+  /workspaces/{workspaceId}/delete:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    post:
+      tags: [Workspace]
+      summary: Delete a workspace (two-step confirmation)
+      description: |
+        Permanently deletes a workspace and its entire entity tree (tables,
+        rows, cells, sequences, chat history, documents). Deliberately a
+        **two-step** operation so it can't fire on a single ambiguous
+        instruction:
+
+        1. Call with `confirm` omitted/false → **no deletion**. Returns
+           `409 CONFIRMATION_REQUIRED` whose `details` carry the workspace name
+           and an impact preview (`willDelete: { tables, rows }`). The caller is
+           expected to check with the user before proceeding.
+        2. After the user agrees, retry with `{ "confirm": true }` → performs the
+           delete and returns `{ workspaceId, name, deleted: true }`.
+
+        A missing / cross-org / already-deleted workspace returns
+        `404 WORKSPACE_NOT_FOUND`.
+      operationId: deleteWorkspace
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm:
+                  type: boolean
+                  default: false
+                  description: Must be true to actually delete. Omit/false to get the confirmation preview.
+      responses:
+        '200': { description: '{ workspaceId, name, deleted: true } — workspace deleted.' }
+        '409': { description: 'CONFIRMATION_REQUIRED — details carry name + willDelete preview; retry with { confirm: true }.' }
+        '404': { description: WORKSPACE_NOT_FOUND. }
+  /workspaces/{workspaceId}/documents:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Workspace]
+      summary: List workspace-scoped documents (paginated)
+      operationId: listWorkspaceDocuments
+      responses:
+        '200': { description: A page of document summaries. }
+  /workspaces/{workspaceId}/documents/{documentId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      tags: [Workspace]
+      summary: Read a document (metadata + content)
+      operationId: getWorkspaceDocument
+      responses:
+        '200': { description: The document detail with inline content. }
+        '404': { description: DOCUMENT_NOT_FOUND. }
+    delete:
+      tags: [Workspace]
+      summary: Delete a workspace document
+      operationId: deleteWorkspaceDocument
+      responses:
+        '200': { description: '{ documentId, deleted: true }.' }
+        '404': { description: DOCUMENT_NOT_FOUND. }
+  /tables:
+    get:
+      tags: [Workspace]
+      summary: List tables (paginated)
+      operationId: listTables
+      responses:
+        '200': { description: A page of TableObjects. }
+  /tables/{tableId}/columns:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+    get:
+      tags: [Workspace]
+      summary: List a table's columns
+      operationId: listColumns
+      responses:
+        '200':
+          description: 'Column list (id, name, slug, kind, autoTrigger).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [columns]
+                properties:
+                  columns:
+                    type: array
+                    items: { $ref: '#/components/schemas/WorkspaceColumn' }
+        '404': { description: TABLE_NOT_FOUND. }
+  /tables/{tableId}/rows:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+    get:
+      x-mint:
+        href: /agents/reference/list-rows
+      tags: [Workspace]
+      summary: List rows (typed cells; ?cells=flat / ?format=csv)
+      description: |
+        Returns polymorphic typed cells by default (`scalar` / `value` (+run) /
+        `sequence`). `?cells=flat` returns the v1-style `{ slug: value }` rows;
+        `?format=csv` streams CSV. Supports `filters`, `sort`, and cursor
+        pagination.
+      operationId: listRows
+      responses:
+        '200': { description: A page of rows. }
+        '404': { description: TABLE_NOT_FOUND. }
+  /tables/{tableId}/rows/upsert:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+    post:
+      tags: [Workspace]
+      summary: Add or update rows
+      description: |
+        This is how you add rows to a table. New rows are inserted and, by
+        default, start enriching immediately; rows that match an existing row
+        on `matchColumns` update that row instead. This is v2's only row-write
+        endpoint — there is no separate insert (to insert only, upsert with
+        `matchColumns` that nothing matches).
+
+        Each call runs as a batch, idempotent per `batchId`, and records per-row
+        `inserted`/`updated`/`skipped` outcomes you can read back with
+        `GET /batches/{batchId}`.
+
+        - Row keys and `matchColumns` are **input column slugs** (from
+          `GET /tables/{tableId}/columns` → `columns[].slug`), never display
+          names. A non-slug row key → `UNKNOWN_FIELDS`.
+        - `matchColumns` (required) must be real input columns (`UNKNOWN_COLUMN`)
+          and every match value must be present + non-empty on every row
+          (`MISSING_MATCH_VALUE`).
+        - Duplicate request keys → `DUPLICATE_MATCH_KEY`; multiple existing rows
+          match one key → `AMBIGUOUS_MATCH` (409).
+        - `enrich` (default true) enriches freshly **inserted** rows.
+        - `reenrichUpdated` (default false) — set true to also re-run enrichment
+          on rows the upsert **updated** (re-spends credits); off by default so an
+          upsert never silently re-enriches matched rows.
+
+        Only `input`-kind columns are writable. Enrichment, score, and
+        **sequence** columns are populated automatically — sequences are
+        agent/column-generated only (see `POST /tables/{tableId}/sequences`),
+        never set via this endpoint; passing one returns `NON_INPUT_COLUMNS`.
+      operationId: upsertRows
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rows, matchColumns]
+              properties:
+                rows: { type: array, items: { type: object, additionalProperties: true }, minItems: 1, maxItems: 100 }
+                matchColumns: { type: array, items: { type: string }, minItems: 1 }
+                enrich: { type: boolean, default: true }
+                reenrichUpdated: { type: boolean, default: false }
+                batchId: { type: string, format: uuid }
+      responses:
+        '201': { description: '{ batchId, counts: { inserted, updated, skipped } }.' }
+        '200': { description: 'Idempotent replay of an existing batchId.' }
+  /tables/{tableId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+    post:
+      tags: [Workspace]
+      summary: Stop a table's work
+      description: |
+        Cancel active enrichment, score, and sequence-drafting work on the
+        table — the API equivalent of the in-app stop button. Sent history is
+        never touched.
+
+        - Omit `columns` to stop the whole table (this also cancels lead-source jobs).
+        - Pass `columns` (column slugs) to stop only those columns.
+        - `dryRun: true` reports what's currently active without stopping anything.
+
+        To stop outreach that has already been sent, use
+        `POST /sequences/{sequenceId}/stop` (one recipient) or
+        `POST /tables/{tableId}/columns/{columnId}/campaign/pause` (the whole campaign).
+      operationId: cancelTableCells
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                columns:
+                  type: array
+                  items: { type: string, minLength: 1, pattern: '\S' }
+                  minItems: 1
+                  description: Column slugs to scope the stop to. Omit to stop every column.
+                dryRun: { type: boolean, default: false }
+      responses:
+        '200': { description: '{ tableId, cancelledCells, cancelledLeadSourceJobs } — or the dryRun report.' }
+        '400': { description: 'VALIDATION_ERROR / UNKNOWN_COLUMN.' }
+        '404': { description: TABLE_NOT_FOUND. }
+        '500': { description: 'CANCEL_PARTIALLY_FAILED — one leg failed; details carry the partial cancelledCells/cancelledLeadSourceJobs + failures[].' }
+  /tables/{tableId}/rows/{rowId}:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+      - $ref: '#/components/parameters/RowId'
+    get:
+      tags: [Workspace]
+      summary: Fetch one row
+      operationId: getRow
+      responses:
+        '200': { description: The row with typed cells keyed by column slug. }
+        '404': { description: ROW_NOT_FOUND / TABLE_NOT_FOUND. }
+  /tables/{tableId}/rows/{rowId}/cells/{columnId}:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+      - $ref: '#/components/parameters/RowId'
+      - $ref: '#/components/parameters/ColumnId'
+    get:
+      tags: [Workspace]
+      summary: Fetch one cell
+      operationId: getCell
+      responses:
+        '200': { description: The single typed cell (+ run metadata where present). }
+        '404': { description: COLUMN_NOT_FOUND / ROW_NOT_FOUND / TABLE_NOT_FOUND. }
+  /batches:
+    get:
+      tags: [Workspace]
+      summary: List batches
+      operationId: listBatches
+      responses:
+        '200': { description: A page of batch summaries. }
+  /batches/{batchId}:
+    parameters:
+      - $ref: '#/components/parameters/BatchId'
+    get:
+      tags: [Workspace]
+      summary: Get a batch
+      operationId: getBatch
+      responses:
+        '200': { description: 'Batch status, enrichment counts, credits, outcomes.' }
+        '404': { description: BATCH_NOT_FOUND. }
+
+  # ── Sequences segment ────────────────────────────────────────────
+  /sequences:
+    get:
+      tags: [Sequences]
+      summary: List sequences (bounded scope, paginated, filtered)
+      description: Requires one of workspaceId / tableId / columnId (else MISSING_SCOPE).
+      operationId: listSequences
+      responses:
+        '200': { description: A page of sequence summaries. }
+        '400': { description: MISSING_SCOPE. }
+  /tables/{tableId}/sequences:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+    get:
+      tags: [Sequences]
+      summary: List a table's sequences (paginated, filtered)
+      description: |
+        Sequences scoped to one table — the quick "does this table have any
+        sequences?" read. Same filters (status / channel / recipient) and
+        pagination as `GET /sequences`, but the table is resolved org-scoped
+        first, so a missing or cross-org table returns 404 TABLE_NOT_FOUND
+        instead of an empty list.
+      operationId: listTableSequences
+      responses:
+        '200': { description: A page of sequence summaries for the table. }
+        '404': { description: TABLE_NOT_FOUND. }
+    post:
+      tags: [Sequences]
+      summary: Create a sequence on a table (agentic)
+      description: |
+        Agentic sequence creation. Minimal body `{ instructions }` — no column
+        or channel; sequences can be multi-channel and the agent infers the
+        rest from the instructions and the table. Delegates to the chat agent
+        via the v2 run path and responds `202 Accepted` with the initial `run`
+        object (poll `GET /agents/{agentId}/runs/{runId}` for progress/result).
+        The agent drafts the sequence (it does not send).
+      operationId: createTableSequence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instructions]
+              properties:
+                instructions:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                  description: Free-form description of the sequence to draft.
+      responses:
+        '202': { description: '{ agent, run, table } — run admitted, work runs in background.' }
+        '400': { description: VALIDATION_ERROR. }
+        '402': { description: INSUFFICIENT_CREDITS. }
+        '404': { description: TABLE_NOT_FOUND. }
+        '409': { description: AGENT_BUSY. }
+        '429': { description: CONCURRENT_LIMIT_EXCEEDED. }
+  /sequences/{sequenceId}:
+    parameters:
+      - $ref: '#/components/parameters/SequenceId'
+    get:
+      tags: [Sequences]
+      summary: Fetch a sequence with steps inline (provider internals redacted)
+      operationId: getSequence
+      responses:
+        '200': { description: Sequence detail. }
+        '404': { description: SEQUENCE_NOT_FOUND. }
+  /sequences/{sequenceId}/steps/{stepId}:
+    parameters:
+      - $ref: '#/components/parameters/SequenceId'
+      - $ref: '#/components/parameters/StepId'
+    patch:
+      tags: [Sequences]
+      summary: Edit a single sequence step's copy (subject/body)
+      description: |
+        Direct edit of one step's `subject` and/or `body`. Only steps in an
+        editable status (no delivery side-effect committed yet) can change;
+        connect-request steps have no subject and their body is capped at the
+        LinkedIn invite-note limit. Whole-sequence rewrites stay agentic
+        (`POST /tables/{tableId}/sequences`).
+      operationId: editSequenceStep
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                subject: { type: string }
+                body: { type: string }
+      responses:
+        '200': { description: '{ stepId, subject, body, status, updatedAt }.' }
+        '400': { description: 'VALIDATION_ERROR / STEP_NOT_EDITABLE.' }
+        '404': { description: SEQUENCE_STEP_NOT_FOUND. }
+        '409': { description: STEP_STATUS_CHANGED. }
+  /sequences/{sequenceId}/stop:
+    parameters:
+      - $ref: '#/components/parameters/SequenceId'
+    post:
+      tags: [Sequences]
+      summary: Stop a sequence (header stop; sent history preserved)
+      description: 'Branches: nothing-to-stop (fresh draft) / stopped / noop (already stopped). Supports dryRun.'
+      operationId: stopSequence
+      responses:
+        '200': { description: '{ sequenceId, action }.' }
+        '404': { description: SEQUENCE_NOT_FOUND. }
+  /sequences/{sequenceId}/delete:
+    parameters:
+      - $ref: '#/components/parameters/SequenceId'
+    post:
+      tags: [Sequences]
+      summary: Delete a sequence (sent-message guard)
+      description: 'Soft-delete; 409 SEQUENCE_HAS_SENT_MESSAGES unless forceDeletionOfSentMessages. Supports dryRun.'
+      operationId: deleteSequence
+      responses:
+        '200': { description: '{ sequenceId, deleted: true }.' }
+        '409': { description: SEQUENCE_HAS_SENT_MESSAGES. }
+        '404': { description: SEQUENCE_NOT_FOUND. }
+  /tables/{tableId}/columns/{columnId}/campaign:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+      - $ref: '#/components/parameters/ColumnId'
+    get:
+      tags: [Sequences]
+      summary: Read campaign pause state
+      operationId: getCampaign
+      responses:
+        '200': { description: '{ paused }.' }
+  /tables/{tableId}/columns/{columnId}/campaign/pause:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+      - $ref: '#/components/parameters/ColumnId'
+    post:
+      tags: [Sequences]
+      summary: Pause a campaign (idempotent; dryRun)
+      operationId: pauseCampaign
+      responses:
+        '200': { description: Pause result. }
+  /tables/{tableId}/columns/{columnId}/campaign/resume:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+      - $ref: '#/components/parameters/ColumnId'
+    post:
+      tags: [Sequences]
+      summary: Resume a campaign (idempotent; dryRun)
+      operationId: resumeCampaign
+      responses:
+        '200': { description: Resume result. }
+
+  # ── Scheduled agents segment ─────────────────────────────────────
+  /scheduled-agents:
+    get:
+      tags: [Scheduled agents]
+      summary: List scheduled agents (filters workspaceId/enabled)
+      operationId: listScheduledAgents
+      responses:
+        '200': { description: A page of scheduled agents (+ planBlocked). }
+    post:
+      tags: [Scheduled agents]
+      summary: Create a scheduled agent (disabled by default)
+      description: Requires workspaceId/name/prompt/cron. Invalid cron → INVALID_CRON / CRON_TOO_FREQUENT.
+      operationId: createScheduledAgent
+      responses:
+        '201': { description: The created scheduled agent. }
+  /scheduled-agents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [Scheduled agents]
+      summary: Fetch a scheduled agent (+ planBlocked, last run)
+      operationId: getScheduledAgent
+      responses:
+        '200': { description: The scheduled agent. }
+        '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
+    patch:
+      tags: [Scheduled agents]
+      summary: Edit a scheduled agent
+      operationId: patchScheduledAgent
+      responses:
+        '200': { description: The updated scheduled agent. }
+    delete:
+      tags: [Scheduled agents]
+      summary: Delete a scheduled agent (soft-delete)
+      operationId: deleteScheduledAgent
+      responses:
+        '200': { description: '{ deleted: true }.' }
+  /scheduled-agents/{id}/enable:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [Scheduled agents]
+      summary: Enable a scheduled agent
+      operationId: enableScheduledAgent
+      responses:
+        '200': { description: The updated scheduled agent. }
+  /scheduled-agents/{id}/disable:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [Scheduled agents]
+      summary: Disable a scheduled agent
+      operationId: disableScheduledAgent
+      responses:
+        '200': { description: The updated scheduled agent. }
+  /scheduled-agents/{id}/trigger:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    post:
+      tags: [Scheduled agents]
+      summary: Manually trigger a run
+      operationId: triggerScheduledAgent
+      responses:
+        '202': { description: '{ runId }.' }
+        '402': { description: SUBSCRIPTION_REQUIRED (upgrade-plan handoff). }
+        '409': { description: RUN_ALREADY_ACTIVE. }
+  /scheduled-agents/{id}/runs:
+    parameters:
+      - $ref: '#/components/parameters/AgentId'
+    get:
+      tags: [Scheduled agents]
+      summary: Run history (failed runs carry a workspace-chat handoff)
+      operationId: listScheduledAgentRuns
+      responses:
+        '200': { description: Run history newest-first. }
+
+  # ── Account segment ──────────────────────────────────────────────
+  /account:
+    get:
+      tags: [Account]
+      summary: Org account overview (plan, capabilities, workspace usage)
+      operationId: getAccount
+      responses:
+        '200': { description: The account overview. }
+  /account/credits:
+    get:
+      tags: [Account]
+      summary: Credit balance (supersedes v1 GET /credits)
+      operationId: getAccountCredits
+      responses:
+        '200': { description: '{ balance, currency: "credits" }.' }
 
 components:
   securitySchemes:
@@ -541,6 +1061,46 @@ components:
           Run ids are stable text (not UUID) sourced from
           `chat_stream.id`. v2-issued ids carry a `v2_run-` prefix.
           Use the literal value returned in prior responses.
+    WorkspaceId:
+      in: path
+      name: workspaceId
+      required: true
+      schema: { type: string, format: uuid }
+    DocumentId:
+      in: path
+      name: documentId
+      required: true
+      schema: { type: string, format: uuid }
+    TableId:
+      in: path
+      name: tableId
+      required: true
+      schema: { type: string, format: uuid }
+    RowId:
+      in: path
+      name: rowId
+      required: true
+      schema: { type: string, format: uuid }
+    ColumnId:
+      in: path
+      name: columnId
+      required: true
+      schema: { type: string, format: uuid }
+    SequenceId:
+      in: path
+      name: sequenceId
+      required: true
+      schema: { type: string, format: uuid }
+    StepId:
+      in: path
+      name: stepId
+      required: true
+      schema: { type: string, format: uuid }
+    BatchId:
+      in: path
+      name: batchId
+      required: true
+      schema: { type: string, format: uuid }
 
   schemas:
     CreateAgentRequest:
@@ -569,6 +1129,17 @@ components:
             supplies `workspaceId`, every id must belong to that
             workspace. When `workspaceId` is omitted, the workspace
             is inferred from the first id.
+        attachments:
+          type: array
+          maxItems: 20
+          default: []
+          items: { $ref: '#/components/schemas/UploadedRunAttachment' }
+          description: |
+            Bind existing resources to the run. A `document` is injected as
+            an attached file the agent reads with `ctx.loadFile(path)` (its
+            current path is re-resolved at run start); a `table` is merged
+            into `focusTableIds`. Every attachment must belong to the run's
+            workspace + org, else `400 INVALID_ATTACHMENT` before admission.
         model:
           type: string
           enum: [origami-lite, origami-max]
@@ -581,6 +1152,19 @@ components:
             never an internal name. Legacy aliases `origami-fast` and
             `origami-mid` are still accepted and normalized to
             `origami-lite`.
+    UploadedRunAttachment:
+      oneOf:
+        - type: object
+          required: [kind, documentId]
+          properties:
+            kind: { type: string, enum: [document] }
+            documentId: { type: string, format: uuid }
+        - type: object
+          required: [kind, tableId]
+          properties:
+            kind: { type: string, enum: [table] }
+            tableId: { type: string, format: uuid }
+      description: A document (injected as an attached file) or a table (merged into focusTableIds).
     SendRunRequest:
       type: object
       required: [prompt]
@@ -591,6 +1175,12 @@ components:
           items: { type: string, format: uuid }
           maxItems: 50
           default: []
+        attachments:
+          type: array
+          maxItems: 20
+          default: []
+          items: { $ref: '#/components/schemas/UploadedRunAttachment' }
+          description: See CreateAgentRequest.attachments.
         model:
           type: string
           enum: [origami-lite, origami-max]
@@ -791,11 +1381,10 @@ components:
           type: array
           items: { $ref: '#/components/schemas/NextAction' }
           description: |
-            Structured next-action suggestions extracted from the
-            agent's `<suggestions><action ...>...</action></suggestions>`
-            block, if any. Surface the `label` to the user; act on
-            `type` (when present) as a typed CTA the host can fire
-            directly.
+            Structured next-action suggestions extracted from the agent's
+            `<suggestions><action ...>...</action></suggestions>` block,
+            if any. Surface the `label` to the user; act on `type` (when
+            present) as a typed CTA the host can fire directly.
     Run:
       allOf:
         - $ref: '#/components/schemas/RunSummary'
@@ -911,20 +1500,59 @@ components:
             a final "your own answer" button next to `suggestedAnswers`.
             Always the literal `"Or something else"` in v2.0.
           example: Or something else
+    ColumnKind:
+      type: string
+      enum: [input, enrichment, score, sequence]
+      description: |
+        Sequence-aware API classification of a column:
+          * `input` — user-entered (`static`) column; the only kind writable
+            via `POST /tables/{tableId}/rows/upsert`.
+          * `enrichment` — `code` column that runs per row to fetch/compute a value.
+          * `score` — relevance / fit-score column.
+          * `sequence` — `code` column that drafts an outbound sequence
+            (`ctx.upsertSequence(...)` / `.draftMessage(...)`, or one that
+            already has sequences). List its sequences via
+            `GET /tables/{tableId}/sequences`. Created via the agent or column
+            code only — never via the upsert API.
+    WorkspaceColumn:
+      type: object
+      required: [id, name, slug, kind, autoTrigger]
+      description: Column metadata returned by `GET /tables/{tableId}/columns`.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug:
+          type: string
+          nullable: true
+          description: Stable url-safe slug, or null when the column has none.
+        kind:
+          $ref: '#/components/schemas/ColumnKind'
+        autoTrigger:
+          type: boolean
+          description: True when the column runs automatically on new leads.
     TableColumn:
       type: object
-      required: [id, name, type, slug, autoTrigger, credits, cells]
+      required: [id, name, type, kind, slug, autoTrigger, credits, cells]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         type:
           type: string
           description: |
-            Column kind. Common values: `static` (user-entered), `code`
-            (user-TS that runs per row, includes enrichments and
-            scoring), plus other internal-typed kinds for future
-            extensibility. Treat as an open string and key off
-            well-known values you need to special-case.
+            Raw DB column type. Common values: `static` (user-entered), `code`
+            (user-TS that runs per row, includes enrichments, scoring, and
+            sequence columns), plus other internal-typed kinds for future
+            extensibility. Treat as an open string. Prefer `kind` for
+            classification — it splits `code` columns into `enrichment`,
+            `score`, and `sequence`.
+        kind:
+          $ref: '#/components/schemas/ColumnKind'
+          description: |
+            Sequence-aware classification of this column. `sequence`
+            columns draft outbound sequences — find them here rather than
+            inspecting `type` (they share the `code` DB type with
+            enrichments). Sequence columns are created via the agent or
+            column code, never set through the upsert API.
         slug:
           type: string
           nullable: true
@@ -1053,7 +1681,7 @@ components:
         url:
           type: string
           format: uri
-          description: Deep link a human can open. For programmatic row reads, use `GET /api/v1/tables/{id}/rows`.
+          description: Deep link a human can open. For programmatic row reads, use `GET /api/v2/tables/{tableId}/rows`.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         stats:
@@ -1211,6 +1839,16 @@ components:
         details:
           type: object
           additionalProperties: true
+        handoff:
+          type: object
+          description: |
+            Present on 4xx errors the caller's user can resolve in-app — a
+            forwardable link on the canonical app origin.
+          required: [kind, url, label]
+          properties:
+            kind: { type: string }
+            url: { type: string, format: uri }
+            label: { type: string }
 
   responses:
     Unauthorized:

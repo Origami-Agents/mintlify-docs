@@ -1,0 +1,64 @@
+---
+title: "Using webhooks with the API"
+description: "Combine the v2 API and webhooks into one submit, notify, resolve loop."
+---
+
+The v2 API and webhooks are two halves of the same integration. The API is a **pull**
+surface — you request state and ask Origami to change it. Webhooks are a **push** surface —
+Origami tells you the moment something happens, so you don't have to poll.
+
+| Plane | Direction | Answers |
+|-------|-----------|---------|
+| [v2 API](/agents) | pull (request → response) | "What is the state, and please change it." |
+| [Webhooks](/webhooks/overview) | push (event → your endpoint) | "Tell me the moment something happens." |
+
+They are not alternatives. A real integration uses both: the API to submit work and read
+results, webhooks to learn when long-running or externally-triggered things happen.
+
+## The submit, notify, resolve loop
+
+The rule of thumb: **the API gives you the id and the final read; the webhook tells you when
+to do that read.**
+
+Sequence outreach is the clearest example you can wire up today:
+
+<Steps>
+  <Step title="Submit">
+    Start a sequence — draft one with `POST /api/v2/tables/{tableId}/sequences` or launch it
+    in the app.
+  </Step>
+  <Step title="Notify">
+    `sequence.message.sent` fires when each step is durably sent.
+    `sequence.reply.received` fires on an inbound reply.
+  </Step>
+  <Step title="Resolve">
+    Read the sequence with `GET /api/v2/sequences/{sequenceId}`, then stop or adjust it from
+    the API or in the app.
+  </Step>
+</Steps>
+
+For work you can't yet subscribe to — agent runs and upsert batches — poll the API instead:
+poll [`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run) for runs and
+`GET /api/v2/batches/{batchId}` for batches.
+
+## Correlation keys
+
+A webhook payload joins back to API resources through stable ids, so you can round-trip from
+a push event to a pull read with no extra mapping.
+
+| Payload field | Read it with |
+|---------------|--------------|
+| `outreach_target.{table_id, row_id}` | `GET /api/v2/tables/{tableId}/rows/{rowId}` |
+| `outreach_target.column_id` | The stable campaign identifier across a sequence's events. |
+| `sequence_id` | `GET /api/v2/sequences/{sequenceId}` |
+| `message_id` | The matching step (`stepId`) on the sequence detail. |
+
+## Auth and security
+
+The two planes use independent credentials. The API authenticates with your `og_live_` API
+key. Webhooks authenticate **to your receiver** with an HMAC signature over the delivery body,
+which you [verify](/webhooks/signatures) before acting on the payload. Rotating an API key does
+not affect webhook signatures, and vice versa.
+
+Webhook payloads expose only user-visible identifiers (email address, LinkedIn handle, display
+name) — the same redaction the API serializers apply.

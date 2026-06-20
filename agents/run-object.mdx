@@ -1,0 +1,98 @@
+---
+title: "Run object"
+description: "How to read a run's status, the actions it took, and the tables it built."
+---
+
+A run is one brief and the work that follows it. Every call to
+[`POST /api/v2/agents`](/agents/reference/create-agent),
+[`POST /api/v2/agents/{id}/runs`](/agents/reference/send-run), and each poll of
+[`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run) returns the same run
+object. This page explains the fields you branch on.
+
+## Status
+
+`status` is the single discriminator for a run's lifecycle. Branch on it — non-`completed`
+terminal states are reported here, not as HTTP errors.
+
+| Status | Meaning | What to do |
+|--------|---------|------------|
+| `running` | Work is in progress. | Keep polling; honor the `Retry-After` header. |
+| `completed` | The agent finished cleanly. | Read `response`. |
+| `needs_input` | The agent asked a question before it could continue. | Answer with a follow-up run (see [Pending questions](#pending-questions)). |
+| `incomplete` | The step finished but a tool call could not be parsed, so the loop ended early. | Recoverable — send a follow-up run on the same agent. |
+| `step_cap_hit` | The run reached your plan's step limit. | Send a follow-up run to continue, or upgrade for a higher cap. |
+| `cancelled` | You cancelled the run. | Whatever the agent built so far is kept. |
+| `errored` | The run failed. | `response.text` is `null`; retry or contact support. |
+| `timed_out` | The run exceeded the wall-clock ceiling. | `response.text` is `null`; send a follow-up run. |
+
+The `Retry-After` header (currently 15 seconds) is present **only** while `status` is
+`running`. Its absence on a response is the signal to stop polling.
+
+## Response
+
+`response` is `null` while the run is `running`. Once the run is terminal, it carries the
+agent's prose plus the structured work it did.
+
+```json
+{
+  "status": "completed",
+  "response": {
+    "text": "Found 18 Austin SaaS founders who raised seed recently.",
+    "actions": [
+      { "type": "table_created", "tableId": "tbl_77", "tableName": "Austin Seed Founders" },
+      { "type": "leads_added", "tableId": "tbl_77", "leadCount": 18 }
+    ],
+    "tables": [
+      { "id": "tbl_77", "name": "Austin Seed Founders", "leadCount": 18,
+        "url": "https://origami.chat/workspace/ws_4a9b?table=tbl_77" }
+    ]
+  },
+  "todo": { "pendingQuestions": [], "nextActions": [] }
+}
+```
+
+### `response.text`
+
+The cleaned, user-facing summary of what the agent did. Internal markup is stripped
+server-side. It is `null` on `errored` and `timed_out` runs.
+
+### `response.actions[]`
+
+The structured workspace mutations the agent performed, in the order they fired. Each
+action has a `type` and a `tableId`; other fields depend on the type. v2 speaks "leads"
+rather than "rows", so row mutations use `leads_added`, `leads_deleted`, and
+`leads_restored`. Use this as the audit trail of what changed. It is empty when the run
+made no mutations (for example, when it stopped on a question).
+
+### `response.tables[]`
+
+The full table objects for every table the run touched — the same shape as a single
+[`GET /api/v2/tables/{id}`](/agents/reference/get-table) response. This is the quickest way
+to see lead counts and table URLs without a second call. To read the actual rows, pass a
+table id to [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows).
+
+## Optional projections
+
+`GET /api/v2/agents/{id}/runs/{runId}` takes an `include` query parameter — a comma-separated
+list of opt-in projections. Unknown tokens are ignored.
+
+| Token | Effect |
+|-------|--------|
+| `stats` | Attaches the economics block (credits per lead, qualification, funnel, lead sources) to every `response.tables[]` entry, per table and per column. |
+| `transcript` | Returns the full public transcript on `response.transcript`. |
+
+Combine them:
+
+```bash
+curl "https://origami.chat/api/v2/agents/$AGENT_ID/runs/$RUN_ID?include=stats,transcript" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+## Pending questions
+
+When the agent needs a decision before it can continue, the run finishes with
+`status: "needs_input"` and `todo.pendingQuestions[]` is populated. Surface the question to
+your user, then answer it by sending a follow-up run on the same agent with
+[`POST /api/v2/agents/{id}/runs`](/agents/reference/send-run) — any free-text `prompt` is
+accepted. `todo.nextActions[]` carries the agent's suggested next steps, each with a `label`
+you can show and an optional typed `type` you can act on directly.

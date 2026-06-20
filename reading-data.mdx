@@ -3,6 +3,13 @@ title: "Reading data"
 description: "Filter, sort, and export enriched table data via the API."
 ---
 
+<Note>
+  This page documents the **v1 (deprecated)** read endpoint. For new integrations, read rows
+  with the v2 endpoint [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows),
+  which returns typed cells and supports `?cells=flat` for this same flat shape. v1 stays
+  fully functional — see the [migration guide](/api-v1-to-v2-migration).
+</Note>
+
 The `GET /tables/{tableId}/rows` endpoint returns enriched row data with support for
 filtering, sorting, column selection, and CSV export.
 
