@@ -29,28 +29,110 @@
         ]
       },
       {
-        "tab": "v1 API reference",
-        "groups": [
-          {
-            "group": "Data API (v1)",
-            "openapi": "openapi-v1.yaml"
-          }
-        ]
-      },
-      {
-        "tab": "v2 API beta",
+        "tab": "v2 API",
         "groups": [
           {
             "group": "Guide",
             "pages": [
               "agents/index",
               "agents/quickstart",
+              "agents/run-object",
               "agents/skill"
             ]
           },
           {
-            "group": "API reference",
-            "openapi": "openapi-v2.yaml"
+            "group": "Agents",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "POST /agents",
+              "GET /agents",
+              "GET /agents/{id}",
+              "DELETE /agents/{id}"
+            ]
+          },
+          {
+            "group": "Runs",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "POST /agents/{id}/runs",
+              "GET /agents/{id}/runs",
+              "GET /agents/{id}/runs/{runId}",
+              "POST /agents/{id}/cancel"
+            ]
+          },
+          {
+            "group": "Tables",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /tables",
+              "GET /tables/{id}",
+              "GET /agents/{id}/tables",
+              "GET /tables/{tableId}/columns",
+              "GET /tables/{tableId}/rows",
+              "GET /tables/{tableId}/rows/{rowId}",
+              "GET /tables/{tableId}/rows/{rowId}/cells/{columnId}"
+            ]
+          },
+          {
+            "group": "Rows & batches",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "POST /tables/{tableId}/rows/upsert",
+              "POST /tables/{tableId}/cancel",
+              "GET /batches",
+              "GET /batches/{batchId}"
+            ]
+          },
+          {
+            "group": "Workspace",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /workspaces",
+              "POST /workspaces",
+              "POST /workspaces/{workspaceId}/delete",
+              "GET /workspaces/{workspaceId}/documents",
+              "GET /workspaces/{workspaceId}/documents/{documentId}",
+              "DELETE /workspaces/{workspaceId}/documents/{documentId}"
+            ]
+          },
+          {
+            "group": "Sequences",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /sequences",
+              "GET /tables/{tableId}/sequences",
+              "POST /tables/{tableId}/sequences",
+              "GET /sequences/{sequenceId}",
+              "PATCH /sequences/{sequenceId}/steps/{stepId}",
+              "POST /sequences/{sequenceId}/stop",
+              "POST /sequences/{sequenceId}/delete",
+              "GET /tables/{tableId}/columns/{columnId}/campaign",
+              "POST /tables/{tableId}/columns/{columnId}/campaign/pause",
+              "POST /tables/{tableId}/columns/{columnId}/campaign/resume"
+            ]
+          },
+          {
+            "group": "Scheduled agents",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /scheduled-agents",
+              "POST /scheduled-agents",
+              "GET /scheduled-agents/{id}",
+              "PATCH /scheduled-agents/{id}",
+              "DELETE /scheduled-agents/{id}",
+              "POST /scheduled-agents/{id}/enable",
+              "POST /scheduled-agents/{id}/disable",
+              "POST /scheduled-agents/{id}/trigger",
+              "GET /scheduled-agents/{id}/runs"
+            ]
+          },
+          {
+            "group": "Account",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /account",
+              "GET /account/credits"
+            ]
           }
         ]
       },
@@ -61,6 +143,7 @@
             "group": "Guide",
             "pages": [
               "webhooks/overview",
+              "webhooks/using-with-the-api",
               "webhooks/setup",
               "webhooks/signatures",
               "webhooks/retries"
@@ -68,13 +151,22 @@
           },
           {
             "group": "Event reference",
+            "openapi": "openapi-webhooks.yaml"
+          }
+        ]
+      },
+      {
+        "tab": "Deprecated",
+        "groups": [
+          {
+            "group": "Migration",
             "pages": [
-              "webhooks/events/message-sent",
-              "webhooks/events/reply-received",
-              "webhooks/events/connection-requested",
-              "webhooks/events/connection-accepted",
-              "webhooks/events/test"
+              "api-v1-to-v2-migration"
             ]
+          },
+          {
+            "group": "Data API (v1)",
+            "openapi": "openapi-v1.yaml"
           }
         ]
       }

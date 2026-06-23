@@ -14,7 +14,20 @@ You work with three resources, all documented in the reference:
 
 - **[Agent](/agents/reference/create-agent)** — a worker in your org. Create one and reuse it.
 - **[Run](/agents/reference/send-run)** — one brief and the work that follows. An agent does one run at a time.
-- **[Table](/agents/reference/get-table)** — what the agent builds. Read its rows through the [v1 Data API](/reading-data).
+- **[Table](/agents/reference/get-table)** — what the agent builds. Read its rows with [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows).
+
+## How runs work
+
+Every run is **asynchronous**. `POST /api/v2/agents` and `POST /api/v2/agents/{id}/runs`
+respond `202 Accepted` with the run already `running` — the agent works in the background.
+You poll [`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run) until `status`
+is no longer `running`, honoring the `Retry-After` header (15 seconds) while it runs. Runs
+typically take 1–5 minutes. See the [run object](/agents/run-object) for the full response
+shape.
+
+Pick a model per run with the `model` field — `origami-lite` or `origami-max`. The default
+is the highest model your plan unlocks (`origami-lite` on starter, `origami-max` on pro and
+above).
 
 ## Start here
 
@@ -25,7 +38,13 @@ You work with three resources, all documented in the reference:
   <Card title="Create an agent" icon="plus" href="/agents/reference/create-agent">
     The first call, and every field it takes.
   </Card>
+  <Card title="Run object" icon="file-json" href="/agents/run-object">
+    Status, actions, tables, and the optional stats and transcript.
+  </Card>
+  <Card title="Read rows back" icon="table" href="/agents/reference/list-rows">
+    Pull the rows the agent built, with typed cells, filters, and CSV.
+  </Card>
 </CardGroup>
 
-Want the AI to do the work? Use v2. Already have the data and just need to read it or
-drop rows in? That's the free [v1 Data API](/reading-data).
+Want the AI to do the work? Use v2. Already have the data and just need to read it back?
+Use [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows).

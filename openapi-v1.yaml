@@ -3,6 +3,17 @@ info:
   title: Origami API
   version: "1.0"
   description: |
+    > **Deprecated.** v1 is superseded by the canonical
+    > [v2 API](./openapi-v2) (four segments: Agents, Workspace, Sequences,
+    > Account). v1 remains fully functional with **no removal date in this
+    > release** — but new integrations should target v2. See the
+    > [v1 → v2 migration guide](./api-v1-to-v2-migration): `GET /tables` →
+    > `GET /api/v2/tables`, `GET /tables/:id/rows` →
+    > `GET /api/v2/tables/:tableId/rows`, `POST /tables/:id/rows` →
+    > `POST /api/v2/tables/:tableId/rows/upsert` (upsert; no bare insert),
+    > `GET /batches/:id` → `GET /api/v2/batches/:batchId`, `GET /credits` →
+    > `GET /api/v2/account/credits`.
+
     The Origami API lets you enrich company and people data programmatically.
     See the [Quickstart](/quickstart) for a walkthrough with curl examples.
 

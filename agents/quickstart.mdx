@@ -86,15 +86,18 @@ far is kept.
 
 ## Fetch the data
 
-The agent stores results in tables. To pull the rows, hand the table id to the v1 Data
-API — it's free and needs no agent:
+The agent stores results in tables. To pull the rows, hand the table id to
+[`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows) — it's free and needs no
+agent:
 
 ```bash
-curl "https://origami.chat/api/v1/tables/$TABLE_ID/rows?pageSize=100" \
+curl "https://origami.chat/api/v2/tables/$TABLE_ID/rows" \
   -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
 
-See [Reading data](/reading-data) for filtering, sorting, and CSV export.
+Rows come back as typed cells by default. Add `?cells=flat` for the simpler
+`{ slug: value }` shape, or `?format=csv` to download a spreadsheet. See the
+[list rows reference](/agents/reference/list-rows) for filters, sorting, and pagination.
 
 ## Install the skill (optional)
 

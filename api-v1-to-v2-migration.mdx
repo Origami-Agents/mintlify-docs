@@ -1,0 +1,69 @@
+---
+title: "Migrating from v1 to v2"
+description: "Map every v1 Data API route to its canonical v2 equivalent."
+---
+
+`/api/v1` keeps working **unchanged** — its routes, response shapes, headers, and status
+codes are identical to before. There is **no time-boxed deprecation window** and no
+`Sunset` or `Deprecation` headers in this release. v1 stays fully functional; a separate
+future change will introduce a dated sunset once consumers have migrated. This guide maps
+every v1 route to its canonical v2 equivalent so new integrations can target v2 directly.
+
+## Why v2
+
+- One canonical surface organized into clear segments — **Agents**, **Runs**, **Tables**,
+  **Workspace**, **Sequences**, **Scheduled agents**, and **Account** — instead of v1's flat
+  table-and-credits surface.
+- Full data addressability: tables, columns, rows (list and **upsert**), single row, single
+  cell, and batches with per-row outcomes.
+- A standard error envelope `{ error, code, details?, handoff? }`, where any 4xx the user can
+  fix in-app carries a forwardable `handoff` link.
+- The sequencer, scheduled agents, and account state are reachable from the API for the first
+  time.
+
+## Route mapping
+
+| v1 route | v2 equivalent | Notes |
+| --- | --- | --- |
+| `GET /api/v1/tables` | [`GET /api/v2/tables`](/agents/reference/get-table) | Paginated; returns full table objects. |
+| `GET /api/v1/tables/{tableId}/rows` | [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows) | Typed polymorphic cells by default; `?cells=flat` and `?format=csv` reproduce the v1 flat shape. |
+| `POST /api/v1/tables/{tableId}/rows` (insert) | [`POST /api/v2/tables/{tableId}/rows/upsert`](/agents/reference/list-rows) | v2 has **no bare insert** — use upsert with `matchColumns` (an insert-only call is an upsert whose rows match nothing). Same caps and idempotent `batchId`; adds per-row inserted/updated/skipped outcomes. v1's insert stays for legacy callers. |
+| `GET /api/v1/batches/{batchId}` | `GET /api/v2/batches/{batchId}` | Adds the upsert outcome ledger; `GET /api/v2/batches` lists batches. |
+| `GET /api/v1/credits` | `GET /api/v2/account/credits` | Same balance source; `GET /api/v2/account` adds plan and capability flags. |
+
+## New in v2
+
+These segments have no v1 equivalent:
+
+- **Agents and Runs** — create, list, get, and archive agents; send and poll runs; cancel an
+  active run; list an agent's tables; and bind existing documents or tables to a run with
+  `attachments`.
+- **Workspace** — bootstrap, list, and delete workspaces; read a table's columns; fetch a
+  single row or single cell; and read or delete workspace documents.
+- **Sequences** — list sequences (bounded and paginated) and read one with its steps inline,
+  draft a sequence on a table, edit a step's copy, stop or delete a sequence, and pause or
+  resume a campaign.
+- **Scheduled agents** — recurring (cron) agents with full CRUD, enable/disable, manual
+  trigger, and run history.
+- **Account** — an org overview with plan and capability flags.
+
+## Behavioral differences to know
+
+- **Error envelope.** v2 returns `{ error, code, details?, handoff? }` with validation issues
+  under `details.issues[]`. v1 keeps its legacy `{ error, code, path? }` validation body. Map
+  your error handling per version.
+- **Handoffs.** A 4xx the user can resolve in the app carries a `handoff`
+  (`{ kind, url, label }`) — forward `url` to your user unchanged.
+- **Pagination.** v2 list endpoints return a `pagination` envelope
+  (`{ page, pageSize, total, hasMore }`); stop when `hasMore` is `false`. v1's `page`/`pageSize`
+  response fields are unchanged on v1.
+- **Paused campaigns.** A real (non-`dryRun`) action against a paused campaign returns
+  `409 CAMPAIGN_PAUSED` with a resume handoff — never a silent success.
+- **Polymorphic cells.** v2 rows return tagged cells (`scalar`, `value` with run metadata, or
+  `sequence`); a sequence cell links straight into the Sequences API. Use `?cells=flat` for the
+  v1-style `{ slug: value }` shape.
+
+## Skills and tooling
+
+The [Origami skill](/agents/skill) and the v2 OpenAPI spec teach v2 only. v1 appears solely as
+deprecated, with these migration pointers.
