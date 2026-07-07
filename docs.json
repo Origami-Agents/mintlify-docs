@@ -35,9 +35,21 @@
             "group": "Guide",
             "pages": [
               "agents/index",
+              "agents/objects",
               "agents/quickstart",
               "agents/run-object",
               "agents/skill"
+            ]
+          },
+          {
+            "group": "Projects",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /projects",
+              "POST /projects",
+              "GET /projects/{projectId}",
+              "PATCH /projects/{projectId}",
+              "DELETE /projects/{projectId}"
             ]
           },
           {
@@ -65,7 +77,7 @@
             "openapi": "openapi-v2.yaml",
             "pages": [
               "GET /tables",
-              "GET /tables/{id}",
+              "GET /tables/{tableId}",
               "GET /agents/{id}/tables",
               "GET /tables/{tableId}/columns",
               "GET /tables/{tableId}/rows",
@@ -74,25 +86,61 @@
             ]
           },
           {
-            "group": "Rows & batches",
+            "group": "Rows & writes",
             "openapi": "openapi-v2.yaml",
             "pages": [
               "POST /tables/{tableId}/rows/upsert",
-              "POST /tables/{tableId}/cancel",
-              "GET /batches",
-              "GET /batches/{batchId}"
+              "POST /tables/{tableId}/rows/upsert-file",
+              "POST /tables/{tableId}/cancel"
             ]
           },
           {
-            "group": "Workspace",
+            "group": "Enrichment runs",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /enrichment-runs",
+              "GET /enrichment-runs/{runId}",
+              "GET /tables/{tableId}/enrichment-runs"
+            ]
+          },
+          {
+            "group": "Workspaces",
             "openapi": "openapi-v2.yaml",
             "pages": [
               "GET /workspaces",
               "POST /workspaces",
-              "POST /workspaces/{workspaceId}/delete",
+              "GET /workspaces/{workspaceId}",
+              "DELETE /workspaces/{workspaceId}"
+            ]
+          },
+          {
+            "group": "Documents",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
               "GET /workspaces/{workspaceId}/documents",
+              "POST /workspaces/{workspaceId}/documents",
               "GET /workspaces/{workspaceId}/documents/{documentId}",
+              "PATCH /workspaces/{workspaceId}/documents/{documentId}",
               "DELETE /workspaces/{workspaceId}/documents/{documentId}"
+            ]
+          },
+          {
+            "group": "Campaigns",
+            "openapi": "openapi-v2.yaml",
+            "pages": [
+              "GET /workspaces/{workspaceId}/campaigns",
+              "GET /tables/{tableId}/campaigns",
+              "POST /tables/{tableId}/campaigns",
+              "GET /campaigns/{campaignId}",
+              "DELETE /campaigns/{campaignId}",
+              "GET /campaigns/{campaignId}/people",
+              "GET /campaigns/{campaignId}/sequences",
+              "GET /campaigns/{campaignId}/stats",
+              "POST /campaigns/{campaignId}/edits",
+              "POST /campaigns/{campaignId}/launch",
+              "POST /campaigns/{campaignId}/send",
+              "POST /campaigns/{campaignId}/pause",
+              "POST /campaigns/{campaignId}/resume"
             ]
           },
           {
@@ -101,14 +149,9 @@
             "pages": [
               "GET /sequences",
               "GET /tables/{tableId}/sequences",
-              "POST /tables/{tableId}/sequences",
               "GET /sequences/{sequenceId}",
-              "PATCH /sequences/{sequenceId}/steps/{stepId}",
               "POST /sequences/{sequenceId}/stop",
-              "POST /sequences/{sequenceId}/delete",
-              "GET /tables/{tableId}/columns/{columnId}/campaign",
-              "POST /tables/{tableId}/columns/{columnId}/campaign/pause",
-              "POST /tables/{tableId}/columns/{columnId}/campaign/resume"
+              "DELETE /sequences/{sequenceId}"
             ]
           },
           {
@@ -132,6 +175,20 @@
             "pages": [
               "GET /account",
               "GET /account/credits"
+            ]
+          },
+          {
+            "group": "Legacy aliases",
+            "openapi": "openapi-v2.yaml",
+            "expanded": false,
+            "pages": [
+              "POST /workspaces/{workspaceId}/delete",
+              "POST /workspaces/{workspaceId}/uploads",
+              "POST /workspaces/{workspaceId}/documents/{documentId}/rename",
+              "POST /tables/{tableId}/sequences",
+              "POST /sequences/{sequenceId}/delete",
+              "GET /batches",
+              "GET /batches/{batchId}"
             ]
           }
         ]

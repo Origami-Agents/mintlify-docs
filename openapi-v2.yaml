@@ -4,11 +4,18 @@ info:
   version: "2.0"
   description: |
     The Origami **v2 API** is the single canonical public surface,
-    organized into four segments — **Agents**, **Workspace**,
-    **Sequences**, and **Account**. Drive AI workers from a prompt,
-    read and write table data (rows, cells, upsert, batches), manage
-    documents and workspaces, control the sequencer and campaigns, run
-    recurring scheduled agents, and read account/credit state.
+    organized into five segments — **Projects** (tenancy), **Agents**,
+    **Workspace**, **Outreach** (campaigns, sequences, steps), and
+    **Account**. Drive AI workers from a prompt, read and write table
+    data (rows, cells, upsert, enrichment runs), manage documents and
+    workspaces, control the sequencer and campaigns, run recurring
+    scheduled agents, and read account/credit state.
+
+    **Objects are self-describing** (Stripe-style): every object in a
+    response carries an `object` field naming its type (`"agent"`,
+    `"run"`, `"table"`, `"campaign"`, ...), and every list endpoint
+    returns the one list envelope
+    `{ "object": "list", "items": [...], "nextCursor": string|null, "url": string }`.
 
     **v1 is deprecated** (still fully functional — no removal date in
     this release). New integrations should target v2 only. See the
@@ -20,11 +27,31 @@ info:
     | `GET /tables` | `GET /api/v2/tables` |
     | `GET /tables/:id/rows` | `GET /api/v2/tables/:tableId/rows` |
     | `POST /tables/:id/rows` (insert) | `POST /api/v2/tables/:tableId/rows/upsert` (upsert; no bare insert) |
-    | `GET /batches/:id` | `GET /api/v2/batches/:batchId` |
+    | `GET /batches/:id` | `GET /api/v2/enrichment-runs/:runId` (`GET /api/v2/batches/:batchId` remains a deprecated alias) |
     | `GET /credits` | `GET /api/v2/account/credits` |
 
     Errors use the canonical envelope `{ error, code, details?, handoff? }`;
     any 4xx the user can fix in-app carries a forwardable `handoff` link.
+
+    ## Tenancy — parent-wide keys & the `x-origami-project` header
+
+    Every API key is **parent-wide**: bound to the parent (agency)
+    organization and able to act on the parent and any of its
+    **projects** (child orgs). Send the
+    **`x-origami-project: <projectId>`** header on any v2 request to
+    scope it to that project — all org-scoped resources (workspaces,
+    tables, agents, outreach) then operate inside the project. Omit the
+    header to act on the parent. Two exceptions: `/projects/*` manages
+    the projects themselves from the parent (the header is ignored
+    there, never rejected), and `/account` is always parent-scoped.
+
+    The header fails closed: a malformed id →
+    `400 VALIDATION_ERROR`; an unknown, cross-parent, or deleted
+    project → `404 PROJECT_NOT_FOUND`. The plan gate
+    (`canUseApi`) and request-rate limits stay keyed to the parent, and
+    the concurrent-agent pool is shared across the whole parent.
+    Credits spent inside a project draw on the parent's shared wallet,
+    subject to the project's optional `monthlyCredits` budget cap.
 
     ## Transport — async by default
 
@@ -47,6 +74,27 @@ info:
     that absence is the signal to stop polling. Runs typically take
     1–5 minutes; polling faster than the hint does not make a run
     finish sooner.
+
+    ## Pagination — cursor only
+
+    Every list endpoint takes the same parameter pair — `limit`
+    (default 50, max 100; row queries allow up to 200) and `cursor`
+    (opaque; pass back the previous page's `nextCursor`) — and returns
+    the one envelope `{ object: "list", items, nextCursor, url }`.
+    `nextCursor: null` marks the last page. There is no
+    `page`/`pageSize` and no `offset`. Per-endpoint filters (e.g.
+    `?search=`, `?status=`, `?enabled=`) compose with `cursor`/`limit`.
+
+    ## Idempotency
+
+    Any `POST` may send an **`Idempotency-Key`** header (1–255
+    printable ASCII chars). The first response for a key is recorded
+    and replayed verbatim for retries with the same key + request for
+    24 hours; replayed responses carry the `Idempotency-Replay: true`
+    header. Reusing a key with a *different* method/path/body — or
+    racing a still-in-flight original — is `409 IDEMPOTENCY_ERROR`.
+    Row upserts additionally dedup on the body `batchId`
+    (domain-level idempotency, independent of transport retries).
 
     ## Rate limits
 
@@ -92,6 +140,15 @@ info:
     `Run` object's single `status` field — not as HTTP error codes.
     Callers branch on the run object.
 
+    Notable codes beyond the per-endpoint ones: `IDEMPOTENCY_ERROR`
+    (409 — `Idempotency-Key` reused with a different request, or the
+    original is still in flight), `TOO_MANY_ROWS` (413 — a CSV upsert
+    exceeds the 100-row per-request cap), `CAMPAIGN_NOT_FOUND` (404 —
+    missing or cross-org campaign id), `SEQUENCE_NOT_FOUND` (404 —
+    missing or cross-org sequence id), and `PROJECT_NOT_FOUND` (404 —
+    the `x-origami-project` header names an unknown, cross-parent, or
+    deleted project).
+
     ## Webhooks
 
     Sequencer events fan out via HTTPS POSTs you configure in
@@ -108,6 +165,8 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: Projects
+    description: Projects (child orgs) under the parent org — list, get, create, update, delete. Managed from the parent; the `x-origami-project` header is ignored on these paths.
   - name: Agents
     description: Create, list, and archive AI workers (a.k.a. agents).
   - name: Runs
@@ -115,9 +174,11 @@ tags:
   - name: Tables
     description: Read table state and lifetime credit cost.
   - name: Workspace
-    description: Workspaces, tables, columns, rows, cells, batches, and documents.
+    description: Workspaces, tables, columns, rows, cells, enrichment runs, and documents.
+  - name: Campaigns
+    description: First-class outreach campaigns — list, get, read people + stats, create + edit (agentic), launch/pause/resume, delete.
   - name: Sequences
-    description: Read sequences, stop/delete them, and pause/resume campaigns.
+    description: Read per-recipient sequences (with steps inline), stop and delete them. Content edits go through the agentic campaign edit.
   - name: Scheduled agents
     description: Recurring agents (cron) — CRUD, enable/disable, trigger, run history.
   - name: Account
@@ -139,6 +200,8 @@ paths:
         object (`status: "running"`). Poll
         `GET /agents/{id}/runs/{runId}` until `status !== "running"`.
       operationId: createAgentAndRun
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -158,8 +221,9 @@ paths:
                   run: { $ref: '#/components/schemas/Run' }
                   workspace:
                     type: object
-                    required: [id, name, createdAt, createdByApi]
+                    required: [object, id, name, createdAt, createdByApi]
                     properties:
+                      object: { type: string, const: workspace }
                       id: { type: string, format: uuid }
                       name: { type: string }
                       createdAt: { type: string, format: date-time }
@@ -186,28 +250,31 @@ paths:
           $ref: '#/components/responses/ConcurrentLimit'
     get:
       tags: [Agents]
-      summary: List agents
+      summary: List agents (cursor-paginated; ?search=)
       operationId: listAgents
+      x-mint:
+        href: /agents/reference/list-agents
       parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
         - in: query
-          name: page
-          schema: { type: integer, minimum: 0, default: 0 }
-        - in: query
-          name: pageSize
-          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+          name: search
+          description: Case-insensitive substring match on the agent name.
+          schema: { type: string }
       responses:
         '200':
-          description: A page of agents
+          description: A page of agents in the canonical list envelope.
           content:
             application/json:
               schema:
-                type: object
-                required: [agents, pagination]
-                properties:
-                  agents:
-                    type: array
-                    items: { $ref: '#/components/schemas/Agent' }
-                  pagination: { $ref: '#/components/schemas/Pagination' }
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Agent' }
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -218,6 +285,8 @@ paths:
       tags: [Agents]
       summary: Get an agent
       operationId: getAgent
+      x-mint:
+        href: /agents/reference/get-agent
       responses:
         '200':
           description: The agent and its last run summary
@@ -236,6 +305,8 @@ paths:
         (those passed in `workspaceId` on create) are never
         auto-deleted.
       operationId: archiveAgent
+      x-mint:
+        href: /agents/reference/archive-agent
       responses:
         '200':
           description: Archived
@@ -247,14 +318,16 @@ paths:
                 properties:
                   agent:
                     type: object
-                    required: [id, deletedAt]
+                    required: [object, id, deletedAt]
                     properties:
+                      object: { type: string, const: agent }
                       id: { type: string, format: uuid }
                       deletedAt: { type: string, format: date-time }
                   workspace:
                     type: object
-                    required: [id, deletedAt]
+                    required: [object, id, deletedAt]
                     properties:
+                      object: { type: string, const: workspace }
                       id: { type: string, format: uuid }
                       deletedAt:
                         type: string
@@ -284,6 +357,8 @@ paths:
         background. Use this to answer a `needs_input` question — the
         agent picks up from the prior conversation.
       operationId: sendRun
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -311,28 +386,27 @@ paths:
           $ref: '#/components/responses/ConcurrentLimit'
     get:
       tags: [Runs]
-      summary: List runs for an agent
+      summary: List runs for an agent (cursor-paginated)
       operationId: listRuns
+      x-mint:
+        href: /agents/reference/list-runs
       parameters:
-        - in: query
-          name: page
-          schema: { type: integer, minimum: 0, default: 0 }
-        - in: query
-          name: pageSize
-          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
       responses:
         '200':
-          description: A page of run summaries
+          description: A page of run summaries in the canonical list envelope.
           content:
             application/json:
               schema:
-                type: object
-                required: [runs, pagination]
-                properties:
-                  runs:
-                    type: array
-                    items: { $ref: '#/components/schemas/RunSummary' }
-                  pagination: { $ref: '#/components/schemas/Pagination' }
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/RunSummary' }
         '404':
           $ref: '#/components/responses/AgentNotFound'
 
@@ -402,10 +476,13 @@ paths:
         economics block (per-table + per-column).
 
         Scoped to the agent's own workspace; a caller cannot probe
-        arbitrary workspaces through this path. No pagination in
-        v2.0 — an agent's workspace is rarely more than a handful of
-        tables.
+        arbitrary workspaces through this path. Returned in the
+        canonical list envelope with `nextCursor` always `null` — an
+        agent's workspace is rarely more than a handful of tables, so
+        the endpoint does not paginate.
       operationId: listAgentTables
+      x-mint:
+        href: /agents/reference/list-agent-tables
       parameters:
         - in: query
           name: include
@@ -417,26 +494,25 @@ paths:
             example: stats
       responses:
         '200':
-          description: Tables in the agent's workspace
+          description: Tables in the agent's workspace (list envelope + `workspaceId`).
           content:
             application/json:
               schema:
-                type: object
-                required: [workspaceId, tables]
-                properties:
-                  workspaceId: { type: string, format: uuid }
-                  tables:
-                    type: array
-                    items: { $ref: '#/components/schemas/Table' }
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items, workspaceId]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Table' }
+                      workspaceId: { type: string, format: uuid }
         '404':
           $ref: '#/components/responses/AgentNotFound'
 
-  /tables/{id}:
+  /tables/{tableId}:
     parameters:
-      - in: path
-        name: id
-        required: true
-        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/TableId'
     get:
       x-mint:
         href: /agents/reference/get-table
@@ -513,6 +589,8 @@ paths:
         just-cancelled one if there was one, otherwise the agent's
         most recent terminal run.
       operationId: cancelActiveRun
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
           description: |
@@ -535,19 +613,39 @@ paths:
   /workspaces:
     get:
       tags: [Workspace]
-      summary: List workspaces (paginated)
+      summary: List workspaces (cursor-paginated; ?search=)
       operationId: listWorkspaces
+      x-mint:
+        href: /agents/reference/list-workspaces
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: search
+          description: Case-insensitive substring match on the workspace name.
+          schema: { type: string }
       responses:
-        '200': { description: A page of workspaces. }
+        '200':
+          description: A page of workspaces in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Workspace' }
     post:
       tags: [Workspace]
-      summary: Create a workspace
-      description: |
-        Create an empty workspace — a container that holds tables and
-        documents. You only need this to set up a workspace before adding
-        data to it; when you create an agent without a `workspaceId`, one is
-        made for you automatically.
+      summary: Bootstrap a workspace (upload-first flows)
       operationId: createWorkspace
+      x-mint:
+        href: /agents/reference/create-workspace
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         content:
           application/json:
@@ -556,30 +654,88 @@ paths:
               properties:
                 name: { type: string, maxLength: 80 }
       responses:
-        '201': { description: 'The created workspace (id, name, url).' }
+        '201':
+          description: The created workspace.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
         '403': { description: WORKSPACE_LIMIT_REACHED (carries an upgrade-plan handoff). }
+  /workspaces/{workspaceId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      tags: [Workspace]
+      summary: Fetch a workspace
+      operationId: getWorkspace
+      x-mint:
+        href: /agents/reference/get-workspace
+      responses:
+        '200':
+          description: The workspace object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Workspace' }
+        '404': { description: WORKSPACE_NOT_FOUND. }
+    delete:
+      tags: [Workspace]
+      summary: Delete a workspace (two-step; ?confirm=true)
+      description: |
+        Permanently deletes a workspace and its entire entity tree (tables,
+        rows, cells, sequences, chat history, documents). Follows the v2
+        deletes convention — deliberately **two-step** so it can't fire on a
+        single ambiguous instruction:
+
+        1. Call **without** `?confirm=true` → **no deletion**. Returns HTTP
+           200 with the impact preview
+           `{ workspaceId, name, confirmationRequired: true, willDelete: { tables, rows } }`.
+           The caller is expected to check with the user before proceeding.
+        2. After the user agrees, retry with `?confirm=true` → performs the
+           cascade soft-delete and returns `{ workspaceId, name, deleted: true }`.
+
+        A missing / cross-org / already-deleted workspace returns
+        `404 WORKSPACE_NOT_FOUND`.
+      operationId: deleteWorkspaceRest
+      x-mint:
+        href: /agents/reference/delete-workspace
+      parameters:
+        - in: query
+          name: confirm
+          description: Must be `true` to actually delete. Omit for the impact preview.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The impact preview (unconfirmed) or the delete receipt (confirmed).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WorkspaceDeletePreview'
+                  - type: object
+                    required: [workspaceId, name, deleted]
+                    properties:
+                      workspaceId: { type: string, format: uuid }
+                      name: { type: string }
+                      deleted: { type: boolean, const: true }
+        '404': { description: WORKSPACE_NOT_FOUND. }
   /workspaces/{workspaceId}/delete:
     parameters:
       - $ref: '#/components/parameters/WorkspaceId'
     post:
+      deprecated: true
       tags: [Workspace]
-      summary: Delete a workspace (two-step confirmation)
+      summary: 'Legacy alias: delete a workspace (body-confirm protocol)'
       description: |
-        Permanently deletes a workspace and its entire entity tree (tables,
-        rows, cells, sequences, chat history, documents). Deliberately a
-        **two-step** operation so it can't fire on a single ambiguous
-        instruction:
-
-        1. Call with `confirm` omitted/false → **no deletion**. Returns
-           `409 CONFIRMATION_REQUIRED` whose `details` carry the workspace name
-           and an impact preview (`willDelete: { tables, rows }`). The caller is
-           expected to check with the user before proceeding.
-        2. After the user agrees, retry with `{ "confirm": true }` → performs the
-           delete and returns `{ workspaceId, name, deleted: true }`.
-
-        A missing / cross-org / already-deleted workspace returns
-        `404 WORKSPACE_NOT_FOUND`.
+        Deprecated alias for `DELETE /workspaces/{workspaceId}`. Keeps the
+        original body-confirm protocol: with `confirm` omitted/false it
+        returns `409 CONFIRMATION_REQUIRED` whose `details` carry the
+        workspace name and the `willDelete: { tables, rows }` impact preview;
+        the `{ "confirm": true }` retry performs the delete and returns
+        `{ workspaceId, name, deleted: true }`.
       operationId: deleteWorkspace
+      x-mint:
+        href: /agents/reference/delete-workspace-legacy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: false
         content:
@@ -600,10 +756,83 @@ paths:
       - $ref: '#/components/parameters/WorkspaceId'
     get:
       tags: [Workspace]
-      summary: List workspace-scoped documents (paginated)
+      summary: List workspace-scoped documents (cursor-paginated)
       operationId: listWorkspaceDocuments
+      x-mint:
+        href: /agents/reference/list-documents
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
       responses:
-        '200': { description: A page of document summaries. }
+        '200':
+          description: A page of document summaries in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/DocumentSummary' }
+        '404': { description: WORKSPACE_NOT_FOUND. }
+    post:
+      tags: [Workspace]
+      summary: Upload files into a workspace (the single ingest verb)
+      description: |
+        The one ingest path for every file type — base64 file bytes inside
+        JSON (no multipart). CSVs become new tables (`mode: "table"`, the
+        default for `.csv`), append into an existing table (`mode: "append"`
+        + `tableId`), or store as documents (`mode: "document"`); any other
+        extension is stored as a document. Preflight validation is
+        all-or-nothing: the whole request is rejected (count cap, per-file
+        mode/extension/append-target) before any file is ingested. Per-file
+        ingestion can still fail after preflight — the response is `201` when
+        at least one file landed and `422 UPLOAD_FAILED` when every file
+        errored. Replaces the deprecated
+        `POST /workspaces/{workspaceId}/uploads` spelling (same contract).
+      operationId: uploadWorkspaceDocuments
+      x-mint:
+        href: /agents/reference/upload-documents
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UploadFilesRequest' }
+      responses:
+        '201': { description: 'Per-file ingest results ({ results: [...] }); individual entries may be kind: "error".' }
+        '400': { description: 'VALIDATION_ERROR / INVALID_UPLOAD_MODE.' }
+        '404': { description: 'WORKSPACE_NOT_FOUND / TABLE_NOT_FOUND (append target).' }
+        '413': { description: TOO_MANY_FILES — over the per-request file cap. }
+        '422': { description: UPLOAD_FAILED — every file errored; details carry the per-file results. }
+  /workspaces/{workspaceId}/uploads:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    post:
+      deprecated: true
+      tags: [Workspace]
+      summary: 'Legacy alias: upload files (use POST /workspaces/{workspaceId}/documents)'
+      description: |
+        Deprecated alias for `POST /workspaces/{workspaceId}/documents` —
+        identical body and responses.
+      operationId: uploadWorkspaceFilesLegacy
+      x-mint:
+        href: /agents/reference/upload-documents-legacy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UploadFilesRequest' }
+      responses:
+        '201': { description: 'Per-file ingest results ({ results: [...] }).' }
+        '413': { description: TOO_MANY_FILES. }
+        '422': { description: UPLOAD_FAILED. }
   /workspaces/{workspaceId}/documents/{documentId}:
     parameters:
       - $ref: '#/components/parameters/WorkspaceId'
@@ -612,23 +841,114 @@ paths:
       tags: [Workspace]
       summary: Read a document (metadata + content)
       operationId: getWorkspaceDocument
+      x-mint:
+        href: /agents/reference/get-document
       responses:
-        '200': { description: The document detail with inline content. }
+        '200':
+          description: The document detail with inline content.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentDetail' }
         '404': { description: DOCUMENT_NOT_FOUND. }
+    patch:
+      tags: [Workspace]
+      summary: Rename a document
+      description: |
+        DB-only rename — re-slugs the basename from `name` while preserving
+        the directory prefix and extension; the document id is stable. A
+        collision with another live document at the derived path →
+        `409 DOCUMENT_PATH_TAKEN`.
+      operationId: renameWorkspaceDocument
+      x-mint:
+        href: /agents/reference/rename-document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '200':
+          description: The renamed document summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentSummary' }
+        '404': { description: DOCUMENT_NOT_FOUND. }
+        '409': { description: DOCUMENT_PATH_TAKEN. }
     delete:
       tags: [Workspace]
       summary: Delete a workspace document
       operationId: deleteWorkspaceDocument
+      x-mint:
+        href: /agents/reference/delete-document
       responses:
         '200': { description: '{ documentId, deleted: true }.' }
         '404': { description: DOCUMENT_NOT_FOUND. }
+  /workspaces/{workspaceId}/documents/{documentId}/rename:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - $ref: '#/components/parameters/DocumentId'
+    post:
+      deprecated: true
+      tags: [Workspace]
+      summary: 'Legacy alias: rename a document (use PATCH .../documents/{documentId})'
+      description: |
+        Deprecated alias for
+        `PATCH /workspaces/{workspaceId}/documents/{documentId}` — identical
+        body and responses.
+      operationId: renameWorkspaceDocumentLegacy
+      x-mint:
+        href: /agents/reference/rename-document-legacy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '200':
+          description: The renamed document summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentSummary' }
+        '404': { description: DOCUMENT_NOT_FOUND. }
+        '409': { description: DOCUMENT_PATH_TAKEN. }
   /tables:
     get:
       tags: [Workspace]
-      summary: List tables (paginated)
+      summary: List tables (cursor-paginated; ?workspaceId=)
       operationId: listTables
+      x-mint:
+        href: /agents/reference/list-tables
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: workspaceId
+          description: Scope the list to one workspace.
+          schema: { type: string, format: uuid }
       responses:
-        '200': { description: A page of TableObjects. }
+        '200':
+          description: A page of TableObjects in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Table' }
   /tables/{tableId}/columns:
     parameters:
       - $ref: '#/components/parameters/TableId'
@@ -636,52 +956,108 @@ paths:
       tags: [Workspace]
       summary: List a table's columns
       operationId: listColumns
+      x-mint:
+        href: /agents/reference/list-columns
       responses:
         '200':
-          description: 'Column list (id, name, slug, kind, autoTrigger).'
+          description: |
+            Column objects in the canonical list envelope. Not paginated —
+            `nextCursor` is always `null`.
           content:
             application/json:
               schema:
-                type: object
-                required: [columns]
-                properties:
-                  columns:
-                    type: array
-                    items: { $ref: '#/components/schemas/WorkspaceColumn' }
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/WorkspaceColumn' }
         '404': { description: TABLE_NOT_FOUND. }
   /tables/{tableId}/rows:
     parameters:
       - $ref: '#/components/parameters/TableId'
     get:
-      x-mint:
-        href: /agents/reference/list-rows
       tags: [Workspace]
       summary: List rows (typed cells; ?cells=flat / ?format=csv)
       description: |
-        Returns polymorphic typed cells by default (`scalar` / `value` (+run) /
-        `sequence`). `?cells=flat` returns the v1-style `{ slug: value }` rows;
-        `?format=csv` streams CSV. Supports `filters`, `sort`, and cursor
-        pagination.
+        Returns Row objects (`{ object: "row", id, cells }`) with polymorphic
+        typed cells by default (`scalar` / `value` (+run) / `sequence`), in
+        the canonical list envelope **plus `total`** (the filtered row count
+        for the query's scope). `?cells=flat` returns the v1-style
+        `{ slug: value }` rows (deliberately unstamped); `?format=csv`
+        streams CSV. Supports slug-keyed `filters` / `sort` JSON and cursor
+        pagination — this endpoint allows `limit` up to **200**.
       operationId: listRows
+      x-mint:
+        href: /agents/reference/list-rows
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - in: query
+          name: limit
+          description: Max rows to return. Default 50; rows allow up to 200 (vs. 100 elsewhere).
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: filters
+          description: |
+            JSON array of `{ column, operator, value }` filters. `column` is
+            an input-column slug; operators: `contains`, `not_contains`,
+            `equals`, `not_equals`, `is_empty`, `is_not_empty`,
+            `greater_than`, `greater_than_or_equal`, `less_than`,
+            `less_than_or_equal`. Unknown columns → `UNKNOWN_COLUMN`.
+          schema: { type: string }
+        - in: query
+          name: sort
+          description: 'JSON object `{ column, direction: "asc"|"desc" }` (slug-keyed).'
+          schema: { type: string }
+        - in: query
+          name: cells
+          description: 'Pass `flat` for v1-style `{ slug: value }` rows instead of typed cells.'
+          schema: { type: string, enum: [flat] }
+        - in: query
+          name: format
+          description: Pass `csv` to stream the (flat) rows as CSV.
+          schema: { type: string, enum: [csv] }
+        - in: query
+          name: defaults
+          description: Pass `false` to disable the table's default filters/sort.
+          schema: { type: string, enum: ['true', 'false'] }
       responses:
-        '200': { description: A page of rows. }
+        '200':
+          description: A page of rows (list envelope + `total`).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items, total]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Row' }
+                      total:
+                        type: integer
+                        description: Total row count for the query's scope (all pages).
+            text/csv:
+              schema: { type: string }
+        '400': { description: 'INVALID_FILTERS / INVALID_SORT / UNKNOWN_COLUMN / VALIDATION_ERROR.' }
         '404': { description: TABLE_NOT_FOUND. }
   /tables/{tableId}/rows/upsert:
     parameters:
       - $ref: '#/components/parameters/TableId'
     post:
       tags: [Workspace]
-      summary: Add or update rows
+      summary: Upsert rows on matchColumns (the single v2 batch write primitive)
       description: |
-        This is how you add rows to a table. New rows are inserted and, by
-        default, start enriching immediately; rows that match an existing row
-        on `matchColumns` update that row instead. This is v2's only row-write
-        endpoint — there is no separate insert (to insert only, upsert with
-        `matchColumns` that nothing matches).
+        v2's one row-write endpoint — there is no bare per-row insert (an
+        insert-only call is just an upsert whose rows match nothing). All writes
+        go through `api_batches` and are idempotent per `batchId`.
 
-        Each call runs as a batch, idempotent per `batchId`, and records per-row
-        `inserted`/`updated`/`skipped` outcomes you can read back with
-        `GET /batches/{batchId}`.
+        Rows matching an existing row on **every** `matchColumns` value update
+        that row's input cells; non-matching rows insert. Per-row
+        `inserted`/`updated`/`skipped` outcomes are recorded on the batch.
 
         - Row keys and `matchColumns` are **input column slugs** (from
           `GET /tables/{tableId}/columns` → `columns[].slug`), never display
@@ -698,9 +1074,16 @@ paths:
 
         Only `input`-kind columns are writable. Enrichment, score, and
         **sequence** columns are populated automatically — sequences are
-        agent/column-generated only (see `POST /tables/{tableId}/sequences`),
+        agent/column-generated only (see `POST /tables/{tableId}/campaigns`),
         never set via this endpoint; passing one returns `NON_INPUT_COLUMNS`.
+
+        The response references the tracking object by id: it is an
+        `enrichment_run` the caller polls via `GET /enrichment-runs/{runId}`.
       operationId: upsertRows
+      x-mint:
+        href: /agents/reference/upsert-rows
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -715,27 +1098,100 @@ paths:
                 reenrichUpdated: { type: boolean, default: false }
                 batchId: { type: string, format: uuid }
       responses:
-        '201': { description: '{ batchId, counts: { inserted, updated, skipped } }.' }
-        '200': { description: 'Idempotent replay of an existing batchId.' }
+        '201':
+          description: The upsert receipt — an `enrichment_run` reference with per-outcome counts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpsertReceipt' }
+        '200':
+          description: Idempotent replay of an existing `batchId` (same receipt shape).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpsertReceipt' }
+  /tables/{tableId}/rows/upsert-file:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+    post:
+      tags: [Workspace]
+      summary: Upsert rows from a CSV file (same operation, CSV transport)
+      description: |
+        The CSV transport for `POST /tables/{tableId}/rows/upsert`: `content`
+        is a base64-encoded CSV whose headers are input-column slugs (the same
+        keys as JSON upsert rows) with one record per data row. Identical
+        match/enrich semantics, identical per-`batchId` idempotency, identical
+        row cap — a CSV with more than **100** data rows is rejected with
+        `413 TOO_MANY_ROWS` (split the file or page the JSON upsert).
+      operationId: upsertRowsFromFile
+      x-mint:
+        href: /agents/reference/upsert-rows-file
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content, matchColumns]
+              properties:
+                content:
+                  type: string
+                  description: Base64-encoded CSV. Headers are input-column slugs.
+                filename: { type: string, minLength: 1, maxLength: 255 }
+                matchColumns: { type: array, items: { type: string }, minItems: 1 }
+                enrich: { type: boolean, default: true }
+                reenrichUpdated: { type: boolean, default: false }
+                batchId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: The upsert receipt — an `enrichment_run` reference with per-outcome counts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpsertReceipt' }
+        '200':
+          description: Idempotent replay of an existing `batchId` (same receipt shape).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpsertReceipt' }
+        '400': { description: 'VALIDATION_ERROR — bad base64 / undecodable or empty CSV.' }
+        '413':
+          description: TOO_MANY_ROWS — the CSV exceeds 100 data rows; details carry `{ rows, limit }`.
+        '404': { description: TABLE_NOT_FOUND. }
   /tables/{tableId}/cancel:
     parameters:
       - $ref: '#/components/parameters/TableId'
     post:
       tags: [Workspace]
-      summary: Stop a table's work
+      summary: Stop active cell work for a table (the API "stop" button)
       description: |
-        Cancel active enrichment, score, and sequence-drafting work on the
-        table — the API equivalent of the in-app stop button. Sent history is
-        never touched.
+        Cancel every active (waiting / queued / running) `cell_run` for the
+        table — the API equivalent of the in-app "stop" button. Running cells
+        finish their in-flight execution but skip further work once they observe
+        the cancelled status; sent history is never touched.
 
-        - Omit `columns` to stop the whole table (this also cancels lead-source jobs).
-        - Pass `columns` (column slugs) to stop only those columns.
-        - `dryRun: true` reports what's currently active without stopping anything.
+        - Omit `columns` to stop the whole table; a full-table stop **also**
+          cancels active lead-source jobs.
+        - Pass `columns` (an array of **column slugs** from
+          `GET /tables/{tableId}/columns` → `columns[].slug`) to scope the stop
+          to those columns only. A column scope deliberately leaves lead-source
+          jobs running (they are table-wide, not per-column). An unknown slug →
+          `UNKNOWN_COLUMN`; an empty array → `VALIDATION_ERROR`.
+        - `dryRun: true` reports how much is active right now
+          (`{ dryRun, tableId, activeCells, activeLeadSourceJobs }`) with zero
+          writes — the "what's running?" probe. `activeCells` respects the
+          `columns` scope; `activeLeadSourceJobs` is always the table-wide count
+          (lead-source jobs aren't per-column), so a scoped dry-run still tells
+          you the truth about table activity.
 
-        To stop outreach that has already been sent, use
-        `POST /sequences/{sequenceId}/stop` (one recipient) or
-        `POST /tables/{tableId}/columns/{columnId}/campaign/pause` (the whole campaign).
+        This stops enrichment/score/sequence-drafting cell runs. To halt an
+        already-launched outreach use `POST /sequences/{sequenceId}/stop` (one
+        recipient) or `POST /campaigns/{campaignId}/pause` (the whole
+        campaign).
       operationId: cancelTableCells
+      x-mint:
+        href: /agents/reference/cancel-table-cells
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: false
         content:
@@ -762,8 +1218,14 @@ paths:
       tags: [Workspace]
       summary: Fetch one row
       operationId: getRow
+      x-mint:
+        href: /agents/reference/get-row
       responses:
-        '200': { description: The row with typed cells keyed by column slug. }
+        '200':
+          description: The Row object with typed cells keyed by column slug.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Row' }
         '404': { description: ROW_NOT_FOUND / TABLE_NOT_FOUND. }
   /tables/{tableId}/rows/{rowId}/cells/{columnId}:
     parameters:
@@ -774,43 +1236,197 @@ paths:
       tags: [Workspace]
       summary: Fetch one cell
       operationId: getCell
+      x-mint:
+        href: /agents/reference/get-cell
       responses:
         '200': { description: The single typed cell (+ run metadata where present). }
         '404': { description: COLUMN_NOT_FOUND / ROW_NOT_FOUND / TABLE_NOT_FOUND. }
-  /batches:
+  /enrichment-runs:
     get:
       tags: [Workspace]
-      summary: List batches
-      operationId: listBatches
+      summary: List enrichment runs (cursor-paginated; ?tableId=)
+      description: |
+        Org-wide list of enrichment runs — the tracked batches of
+        column-over-row work (upserts, file ingests) — newest first.
+        Optional `?tableId=` filter. `GET /batches` is the deprecated alias.
+      operationId: listEnrichmentRuns
+      x-mint:
+        href: /agents/reference/list-enrichment-runs
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: tableId
+          description: Scope the list to one table.
+          schema: { type: string, format: uuid }
       responses:
-        '200': { description: A page of batch summaries. }
+        '200':
+          description: A page of enrichment-run summaries in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EnrichmentRun' }
+        '400': { description: VALIDATION_ERROR — malformed tableId. }
+  /enrichment-runs/{runId}:
+    parameters:
+      - $ref: '#/components/parameters/EnrichmentRunId'
+    get:
+      tags: [Workspace]
+      summary: Track an enrichment run (incl. per-row upsert outcomes)
+      description: |
+        Run status, row count, enrichment counts, credits used, and — for
+        `upsert`-type runs — the per-row `outcomes[]` ledger plus
+        `outcomeCounts`. `GET /batches/{batchId}` is the deprecated alias.
+      operationId: getEnrichmentRun
+      x-mint:
+        href: /agents/reference/get-enrichment-run
+      responses:
+        '200':
+          description: The enrichment-run detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrichmentRunDetail' }
+        '404': { description: BATCH_NOT_FOUND — enrichment run not found. }
+  /tables/{tableId}/enrichment-runs:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+    get:
+      tags: [Workspace]
+      summary: List a table's enrichment runs (cursor-paginated)
+      description: |
+        Same list as `GET /enrichment-runs?tableId=`, but the table is
+        resolved org-scoped first — a missing or cross-org table returns
+        `404 TABLE_NOT_FOUND` instead of an empty list.
+      operationId: listTableEnrichmentRuns
+      x-mint:
+        href: /agents/reference/list-table-enrichment-runs
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of enrichment-run summaries in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EnrichmentRun' }
+        '404': { description: TABLE_NOT_FOUND. }
+  /batches:
+    get:
+      deprecated: true
+      tags: [Workspace]
+      summary: 'Legacy alias: list enrichment runs (use GET /enrichment-runs)'
+      description: Deprecated alias for `GET /enrichment-runs` — identical parameters and response.
+      operationId: listBatches
+      x-mint:
+        href: /agents/reference/list-batches
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: tableId
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of enrichment-run summaries in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EnrichmentRun' }
   /batches/{batchId}:
     parameters:
       - $ref: '#/components/parameters/BatchId'
     get:
+      deprecated: true
       tags: [Workspace]
-      summary: Get a batch
+      summary: 'Legacy alias: track an enrichment run (use GET /enrichment-runs/{runId})'
+      description: Deprecated alias for `GET /enrichment-runs/{runId}` — identical response.
       operationId: getBatch
+      x-mint:
+        href: /agents/reference/get-batch
       responses:
-        '200': { description: 'Batch status, enrichment counts, credits, outcomes.' }
+        '200':
+          description: The enrichment-run detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrichmentRunDetail' }
         '404': { description: BATCH_NOT_FOUND. }
 
-  # ── Sequences segment ────────────────────────────────────────────
+  # ── Outreach segment — campaigns, sequences, steps ──────────────
   /sequences:
     get:
       tags: [Sequences]
-      summary: List sequences (bounded scope, paginated, filtered)
-      description: Requires one of workspaceId / tableId / columnId (else MISSING_SCOPE).
+      summary: List sequences (bounded scope, cursor-paginated, filtered)
+      description: |
+        Requires one of `workspaceId` / `tableId` / `columnId` (else
+        `400 MISSING_SCOPE`). Optional `status` / `channel` / `recipient`
+        filters compose with `cursor` / `limit`.
       operationId: listSequences
+      x-mint:
+        href: /agents/reference/list-sequences
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: workspaceId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: tableId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: columnId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: channel
+          schema: { type: string }
+        - in: query
+          name: recipient
+          schema: { type: string }
       responses:
-        '200': { description: A page of sequence summaries. }
-        '400': { description: MISSING_SCOPE. }
+        '200':
+          description: A page of sequence summaries in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SequenceSummary' }
+        '400': { description: MISSING_SCOPE / VALIDATION_ERROR. }
   /tables/{tableId}/sequences:
     parameters:
       - $ref: '#/components/parameters/TableId'
     get:
       tags: [Sequences]
-      summary: List a table's sequences (paginated, filtered)
+      summary: List a table's sequences (cursor-paginated, filtered)
       description: |
         Sequences scoped to one table — the quick "does this table have any
         sequences?" read. Same filters (status / channel / recipient) and
@@ -818,20 +1434,48 @@ paths:
         first, so a missing or cross-org table returns 404 TABLE_NOT_FOUND
         instead of an empty list.
       operationId: listTableSequences
+      x-mint:
+        href: /agents/reference/list-table-sequences
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: channel
+          schema: { type: string }
+        - in: query
+          name: recipient
+          schema: { type: string }
       responses:
-        '200': { description: A page of sequence summaries for the table. }
+        '200':
+          description: A page of sequence summaries for the table in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SequenceSummary' }
         '404': { description: TABLE_NOT_FOUND. }
     post:
+      deprecated: true
       tags: [Sequences]
-      summary: Create a sequence on a table (agentic)
+      summary: 'Legacy alias: create a campaign (use POST /tables/{tableId}/campaigns)'
       description: |
-        Agentic sequence creation. Minimal body `{ instructions }` — no column
-        or channel; sequences can be multi-channel and the agent infers the
-        rest from the instructions and the table. Delegates to the chat agent
-        via the v2 run path and responds `202 Accepted` with the initial `run`
-        object (poll `GET /agents/{agentId}/runs/{runId}` for progress/result).
-        The agent drafts the sequence (it does not send).
+        Deprecated alias for `POST /tables/{tableId}/campaigns` — identical
+        body and responses (agentic campaign creation from
+        `{ instructions }`, `202` with `{ agent, run, table }`).
       operationId: createTableSequence
+      x-mint:
+        href: /agents/reference/create-sequence-legacy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -844,7 +1488,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 10000
-                  description: Free-form description of the sequence to draft.
+                  description: Free-form description of the campaign to draft.
       responses:
         '202': { description: '{ agent, run, table } — run admitted, work runs in background.' }
         '400': { description: VALIDATION_ERROR. }
@@ -859,107 +1503,602 @@ paths:
       tags: [Sequences]
       summary: Fetch a sequence with steps inline (provider internals redacted)
       operationId: getSequence
+      x-mint:
+        href: /agents/reference/get-sequence
       responses:
-        '200': { description: Sequence detail. }
+        '200':
+          description: The sequence detail with its steps.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SequenceDetail' }
         '404': { description: SEQUENCE_NOT_FOUND. }
-  /sequences/{sequenceId}/steps/{stepId}:
-    parameters:
-      - $ref: '#/components/parameters/SequenceId'
-      - $ref: '#/components/parameters/StepId'
-    patch:
+    delete:
       tags: [Sequences]
-      summary: Edit a single sequence step's copy (subject/body)
+      summary: Delete a sequence (?force=true, ?dryRun=true)
       description: |
-        Direct edit of one step's `subject` and/or `body`. Only steps in an
-        editable status (no delivery side-effect committed yet) can change;
-        connect-request steps have no subject and their body is capped at the
-        LinkedIn invite-note limit. Whole-sequence rewrites stay agentic
-        (`POST /tables/{tableId}/sequences`).
-      operationId: editSequenceStep
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              minProperties: 1
-              properties:
-                subject: { type: string }
-                body: { type: string }
+        Soft-deletes one sequence. Without `?force=true`, a sequence with a
+        sent footprint is guarded — `409 SEQUENCE_HAS_SENT_MESSAGES`;
+        `?force=true` (`forceDeletionOfSentMessages`) extends the delete to
+        already-sent messages. `?dryRun=true` reports the would-be effect
+        (`{ dryRun, sequenceId, status, force }`) with no writes. Replaces
+        the deprecated `POST /sequences/{sequenceId}/delete` spelling.
+      operationId: deleteSequenceRest
+      x-mint:
+        href: /agents/reference/delete-sequence
+      parameters:
+        - in: query
+          name: force
+          description: Also delete sequences with already-sent messages.
+          schema: { type: boolean, default: false }
+        - in: query
+          name: dryRun
+          description: Report the would-be effect; write nothing.
+          schema: { type: boolean, default: false }
       responses:
-        '200': { description: '{ stepId, subject, body, status, updatedAt }.' }
-        '400': { description: 'VALIDATION_ERROR / STEP_NOT_EDITABLE.' }
-        '404': { description: SEQUENCE_STEP_NOT_FOUND. }
-        '409': { description: STEP_STATUS_CHANGED. }
+        '200': { description: '{ sequenceId, deleted: true } — or the dryRun report.' }
+        '409': { description: SEQUENCE_HAS_SENT_MESSAGES. }
+        '404': { description: SEQUENCE_NOT_FOUND. }
   /sequences/{sequenceId}/stop:
     parameters:
       - $ref: '#/components/parameters/SequenceId'
     post:
       tags: [Sequences]
       summary: Stop a sequence (header stop; sent history preserved)
-      description: 'Branches: nothing-to-stop (fresh draft) / stopped / noop (already stopped). Supports dryRun.'
+      description: |
+        Branches: nothing-to-stop (fresh draft) / stopped / noop (already
+        stopped). `?dryRun=true` reports the would-be effect with no writes.
       operationId: stopSequence
+      x-mint:
+        href: /agents/reference/stop-sequence
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: query
+          name: dryRun
+          schema: { type: boolean, default: false }
       responses:
-        '200': { description: '{ sequenceId, action }.' }
+        '200': { description: '{ sequenceId, action } — or the dryRun report.' }
         '404': { description: SEQUENCE_NOT_FOUND. }
   /sequences/{sequenceId}/delete:
     parameters:
       - $ref: '#/components/parameters/SequenceId'
     post:
+      deprecated: true
       tags: [Sequences]
-      summary: Delete a sequence (sent-message guard)
-      description: 'Soft-delete; 409 SEQUENCE_HAS_SENT_MESSAGES unless forceDeletionOfSentMessages. Supports dryRun.'
+      summary: 'Legacy alias: delete a sequence (use DELETE /sequences/{sequenceId})'
+      description: |
+        Deprecated alias for `DELETE /sequences/{sequenceId}`. Body-flag
+        protocol: soft-delete; `409 SEQUENCE_HAS_SENT_MESSAGES` unless the
+        body sets `forceDeletionOfSentMessages: true`. Supports body
+        `dryRun: true`.
       operationId: deleteSequence
+      x-mint:
+        href: /agents/reference/delete-sequence-legacy
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { description: '{ sequenceId, deleted: true }.' }
         '409': { description: SEQUENCE_HAS_SENT_MESSAGES. }
         '404': { description: SEQUENCE_NOT_FOUND. }
-  /tables/{tableId}/columns/{columnId}/campaign:
+
+  # ── Campaigns (first-class) ──────────────────────────────────────
+  /workspaces/{workspaceId}/campaigns:
     parameters:
-      - $ref: '#/components/parameters/TableId'
-      - $ref: '#/components/parameters/ColumnId'
+      - $ref: '#/components/parameters/WorkspaceId'
     get:
-      tags: [Sequences]
-      summary: Read campaign pause state
-      operationId: getCampaign
+      tags: [Campaigns]
+      summary: List a workspace's campaigns
+      description: |
+        A campaign is a first-class `campaigns` row (org-global,
+        workspace-homed) whose queue is the set of sequences stamped with
+        its id — one sequence per person. Campaigns are homed on a
+        workspace, so the workspace is the primary list scope. Returns the
+        canonical list envelope with `nextCursor: null` (one page, newest
+        first).
+      operationId: listWorkspaceCampaigns
+      x-mint:
+        href: /agents/reference/list-workspace-campaigns
       responses:
-        '200': { description: '{ paused }.' }
-  /tables/{tableId}/columns/{columnId}/campaign/pause:
+        '200':
+          description: The workspace's campaigns as summaries in the list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/CampaignSummary' }
+        '404': { description: WORKSPACE_NOT_FOUND. }
+  /tables/{tableId}/campaigns:
     parameters:
       - $ref: '#/components/parameters/TableId'
-      - $ref: '#/components/parameters/ColumnId'
-    post:
-      tags: [Sequences]
-      summary: Pause a campaign (idempotent; dryRun)
-      operationId: pauseCampaign
+    get:
+      tags: [Campaigns]
+      summary: List campaigns that send from a table
+      description: |
+        The campaigns whose enrolled sequences send from this table. A
+        campaign owns no table — its `tableId` is derived from the dominant
+        table of its enrolled sequences — so this resolves the table's
+        active campaign(s). Returns the canonical list envelope with
+        `nextCursor: null`.
+      operationId: listTableCampaigns
+      x-mint:
+        href: /agents/reference/list-table-campaigns
       responses:
-        '200': { description: Pause result. }
-  /tables/{tableId}/columns/{columnId}/campaign/resume:
+        '200':
+          description: The table's campaigns as summaries in the list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/CampaignSummary' }
+        '404': { description: TABLE_NOT_FOUND. }
+    post:
+      tags: [Campaigns]
+      summary: Create a campaign on a table (agentic)
+      description: |
+        Agentic campaign creation. Minimal body `{ instructions }` — no
+        column or channel; campaigns can be multi-channel and the agent
+        infers the rest from the instructions and the table. Delegates to
+        the chat agent via the v2 run path and responds `202 Accepted` with
+        `{ agent, run, table }` (poll `GET /agents/{agentId}/runs/{runId}`
+        for progress/result). The agent creates the campaign and drafts its
+        sequences (it does not send); once the run completes, the drafted
+        campaign shows up under `GET /tables/{tableId}/campaigns`. The
+        pre-restructure `POST /tables/{tableId}/sequences` spelling is the
+        legacy alias.
+      operationId: createTableCampaign
+      x-mint:
+        href: /agents/reference/create-campaign
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instructions]
+              properties:
+                instructions:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                  description: Free-form description of the campaign to draft.
+      responses:
+        '202':
+          description: Run admitted; the agent drafts the campaign in the background.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent, run, table]
+                properties:
+                  agent: { $ref: '#/components/schemas/AgentSummary' }
+                  run: { $ref: '#/components/schemas/Run' }
+                  table:
+                    type: object
+                    required: [object, id, name]
+                    properties:
+                      object: { type: string, const: table }
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+        '400': { description: VALIDATION_ERROR. }
+        '402': { description: INSUFFICIENT_CREDITS. }
+        '404': { description: TABLE_NOT_FOUND. }
+        '409': { description: AGENT_BUSY. }
+        '429': { description: CONCURRENT_LIMIT_EXCEEDED. }
+  /campaigns/{campaignId}:
     parameters:
-      - $ref: '#/components/parameters/TableId'
-      - $ref: '#/components/parameters/ColumnId'
-    post:
-      tags: [Sequences]
-      summary: Resume a campaign (idempotent; dryRun)
-      operationId: resumeCampaign
+      - $ref: '#/components/parameters/CampaignId'
+    get:
+      tags: [Campaigns]
+      summary: Fetch a campaign
+      operationId: getCampaignById
+      x-mint:
+        href: /agents/reference/get-campaign
       responses:
-        '200': { description: Resume result. }
+        '200':
+          description: The Campaign object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+    delete:
+      tags: [Campaigns]
+      summary: Delete a campaign (?confirm=true, ?dryRun=true)
+      description: |
+        Soft-deletes the campaign (instantly halting its picker) and
+        cancels its orphaned sequences. Follows the v2 deletes convention:
+
+        - Without `?confirm=true` (or with `?dryRun=true`) → HTTP 200 with
+          the impact preview
+          `{ id, name, confirmationRequired: true, status }`; nothing removed.
+        - With `?confirm=true` → deletes and returns
+          `{ id, name, deleted: true }`.
+      operationId: deleteCampaign
+      x-mint:
+        href: /agents/reference/delete-campaign
+      parameters:
+        - in: query
+          name: confirm
+          description: Must be `true` to actually delete. Omit for the impact preview.
+          schema: { type: boolean, default: false }
+        - in: query
+          name: dryRun
+          description: Force the impact preview even when confirm is set.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The impact preview (unconfirmed / dryRun) or the delete receipt (confirmed).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CampaignDeletePreview'
+                  - type: object
+                    required: [id, name, deleted]
+                    properties:
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+                      deleted: { type: boolean, const: true }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+  /campaigns/{campaignId}/people:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    get:
+      tags: [Campaigns]
+      summary: List the people in a campaign (keyset-paginated, filtered)
+      description: |
+        The people enrolled in the campaign — one row per enrolled sequence
+        (recipient), with send status, fit score / explanation, and identity
+        profile. Keyset-paginated via an opaque `cursor`; the list envelope
+        additionally carries a top-level `total`.
+        `GET /campaigns/{campaignId}/sequences` is a synonym (same shape) —
+        in the campaign model a person IS a sequence.
+      operationId: listCampaignPeople
+      x-mint:
+        href: /agents/reference/list-campaign-people
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: search
+          description: Substring match over recipient / identity.
+          schema: { type: string }
+        - in: query
+          name: status
+          description: CSV of send-status buckets to include.
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of campaign people in the list envelope (with top-level `total`).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items, total]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/CampaignPerson' }
+                      total:
+                        type: integer
+                        description: Total enrolled people matching the filters (across all pages).
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+  /campaigns/{campaignId}/sequences:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    get:
+      tags: [Campaigns]
+      summary: 'Synonym of GET /campaigns/{campaignId}/people'
+      description: |
+        Identical to `GET /campaigns/{campaignId}/people` — same
+        `campaign_person` item shape, same `search` / `status` (CSV) /
+        `cursor` / `limit` params, same top-level `total`. In the campaign
+        model a person IS a sequence.
+      operationId: listCampaignSequences
+      x-mint:
+        href: /agents/reference/list-campaign-sequences
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of campaign people in the list envelope (with top-level `total`).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items, total]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/CampaignPerson' }
+                      total: { type: integer }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+  /campaigns/{campaignId}/stats:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    get:
+      tags: [Campaigns]
+      summary: Campaign performance stats
+      operationId: getCampaignStats
+      x-mint:
+        href: /agents/reference/get-campaign-stats
+      responses:
+        '200':
+          description: The campaign_stats object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CampaignStats' }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+  /campaigns/{campaignId}/edits:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    post:
+      tags: [Campaigns]
+      summary: Request a content change to a campaign (agentic)
+      description: |
+        The ONLY way to change campaign content (message templates, per-lead
+        copy, the brief). Minimal body `{ instructions }` — a natural-
+        language change request the chat agent fulfils. Delegates to the v2
+        run path and responds `202 Accepted` with `{ agent, run, campaign }`
+        (poll `GET /agents/{agentId}/runs/{runId}`). The API never mutates a
+        template or step directly.
+      operationId: editCampaign
+      x-mint:
+        href: /agents/reference/edit-campaign
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instructions]
+              properties:
+                instructions:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+                  description: Free-form description of the content change to apply.
+      responses:
+        '202':
+          description: Run admitted; the agent applies the change in the background.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agent, run, campaign]
+                properties:
+                  agent: { $ref: '#/components/schemas/AgentSummary' }
+                  run: { $ref: '#/components/schemas/Run' }
+                  campaign:
+                    type: object
+                    required: [object, id, name]
+                    properties:
+                      object: { type: string, const: campaign }
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+        '400': { description: VALIDATION_ERROR. }
+        '402': { description: INSUFFICIENT_CREDITS. }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+        '409': { description: AGENT_BUSY. }
+        '429': { description: CONCURRENT_LIMIT_EXCEEDED. }
+  /campaigns/{campaignId}/launch:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    post:
+      tags: [Campaigns]
+      summary: Launch a campaign — activate + run the launch pipeline (alias /send)
+      description: |
+        Marks the campaign ready: sets `status: active` and runs the full
+        launch pipeline campaign-keyed (sender gate, duplicate auto-cancel,
+        per-account scheduling). Idempotent on an already-active campaign.
+
+        **Launch is "mark ready", never "force".** There are NO override
+        knobs — send windows, daily caps, spacing, and duplicate settings
+        are the campaign's own persisted config, set through the agent,
+        never per-call. `POST /campaigns/{campaignId}/send` is an alias.
+        `?dryRun=true` returns `{ dryRun: true, campaignId, wouldLaunch: true }`
+        with no writes.
+      operationId: launchCampaign
+      x-mint:
+        href: /agents/reference/launch-campaign
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: query
+          name: dryRun
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The transition result — or the dryRun report.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CampaignTransition'
+                  - type: object
+                    required: [dryRun, campaignId, wouldLaunch]
+                    properties:
+                      dryRun: { type: boolean, const: true }
+                      campaignId: { type: string, format: uuid }
+                      wouldLaunch: { type: boolean, const: true }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+  /campaigns/{campaignId}/send:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    post:
+      tags: [Campaigns]
+      summary: 'Alias of POST /campaigns/{campaignId}/launch'
+      description: |
+        Alias of `POST /campaigns/{campaignId}/launch` — activates the
+        campaign and runs the launch pipeline. (Before the campaigns
+        refactor this was a batch "mark sequences ready" op; it is now the
+        campaign-activate launch.) Same body, params, and result shape.
+      operationId: sendCampaign
+      x-mint:
+        href: /agents/reference/send-campaign
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: query
+          name: dryRun
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The transition result — or the dryRun report.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CampaignTransition'
+                  - type: object
+                    required: [dryRun, campaignId, wouldLaunch]
+                    properties:
+                      dryRun: { type: boolean, const: true }
+                      campaignId: { type: string, format: uuid }
+                      wouldLaunch: { type: boolean, const: true }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+  /campaigns/{campaignId}/pause:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    post:
+      tags: [Campaigns]
+      summary: Pause a campaign (idempotent; ?dryRun=true)
+      description: |
+        Pauses the campaign. Idempotent — pausing an already-paused campaign
+        is a no-op. `?dryRun=true` returns
+        `{ dryRun: true, campaignId, wouldPause }` with no writes; a real
+        pause returns the transition result carrying the `pause` facts.
+      operationId: pauseCampaignById
+      x-mint:
+        href: /agents/reference/pause-campaign
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: query
+          name: dryRun
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The transition result — or the dryRun report.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CampaignTransition'
+                  - type: object
+                    required: [dryRun, campaignId, wouldPause]
+                    properties:
+                      dryRun: { type: boolean, const: true }
+                      campaignId: { type: string, format: uuid }
+                      wouldPause: { type: boolean }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+  /campaigns/{campaignId}/resume:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+    post:
+      tags: [Campaigns]
+      summary: Resume a campaign (idempotent; ?dryRun=true)
+      description: |
+        Resumes the campaign from where its sequences left off (the same
+        `active` transition as launch; resume vs fresh-launch facts are
+        derived from prior state). Idempotent. `?dryRun=true` returns
+        `{ dryRun: true, campaignId, wouldResume }` with no writes; a real
+        resume returns the transition result carrying the `resume` facts.
+      operationId: resumeCampaignById
+      x-mint:
+        href: /agents/reference/resume-campaign
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: query
+          name: dryRun
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The transition result — or the dryRun report.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/CampaignTransition'
+                  - type: object
+                    required: [dryRun, campaignId, wouldResume]
+                    properties:
+                      dryRun: { type: boolean, const: true }
+                      campaignId: { type: string, format: uuid }
+                      wouldResume: { type: boolean }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
 
   # ── Scheduled agents segment ─────────────────────────────────────
   /scheduled-agents:
     get:
       tags: [Scheduled agents]
-      summary: List scheduled agents (filters workspaceId/enabled)
+      summary: List scheduled agents (cursor-paginated; filters workspaceId/enabled)
       operationId: listScheduledAgents
+      x-mint:
+        href: /agents/reference/list-scheduled-agents
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: workspaceId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: enabled
+          schema: { type: boolean }
       responses:
-        '200': { description: A page of scheduled agents (+ planBlocked). }
+        '200':
+          description: A page of scheduled agents (list envelope + `total`).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items, total]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ScheduledAgent' }
+                      total:
+                        type: integer
+                        description: Total scheduled agents in the listing's scope (all pages).
     post:
       tags: [Scheduled agents]
       summary: Create a scheduled agent (disabled by default)
       description: Requires workspaceId/name/prompt/cron. Invalid cron → INVALID_CRON / CRON_TOO_FREQUENT.
       operationId: createScheduledAgent
+      x-mint:
+        href: /agents/reference/create-scheduled-agent
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '201': { description: The created scheduled agent. }
+        '201':
+          description: The created scheduled agent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledAgent' }
   /scheduled-agents/{id}:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -967,19 +2106,33 @@ paths:
       tags: [Scheduled agents]
       summary: Fetch a scheduled agent (+ planBlocked, last run)
       operationId: getScheduledAgent
+      x-mint:
+        href: /agents/reference/get-scheduled-agent
       responses:
-        '200': { description: The scheduled agent. }
+        '200':
+          description: The scheduled agent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledAgent' }
         '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
     patch:
       tags: [Scheduled agents]
       summary: Edit a scheduled agent
       operationId: patchScheduledAgent
+      x-mint:
+        href: /agents/reference/update-scheduled-agent
       responses:
-        '200': { description: The updated scheduled agent. }
+        '200':
+          description: The updated scheduled agent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledAgent' }
     delete:
       tags: [Scheduled agents]
       summary: Delete a scheduled agent (soft-delete)
       operationId: deleteScheduledAgent
+      x-mint:
+        href: /agents/reference/delete-scheduled-agent
       responses:
         '200': { description: '{ deleted: true }.' }
   /scheduled-agents/{id}/enable:
@@ -989,8 +2142,16 @@ paths:
       tags: [Scheduled agents]
       summary: Enable a scheduled agent
       operationId: enableScheduledAgent
+      x-mint:
+        href: /agents/reference/enable-scheduled-agent
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200': { description: The updated scheduled agent. }
+        '200':
+          description: The updated scheduled agent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledAgent' }
   /scheduled-agents/{id}/disable:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -998,8 +2159,16 @@ paths:
       tags: [Scheduled agents]
       summary: Disable a scheduled agent
       operationId: disableScheduledAgent
+      x-mint:
+        href: /agents/reference/disable-scheduled-agent
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200': { description: The updated scheduled agent. }
+        '200':
+          description: The updated scheduled agent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledAgent' }
   /scheduled-agents/{id}/trigger:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -1007,6 +2176,10 @@ paths:
       tags: [Scheduled agents]
       summary: Manually trigger a run
       operationId: triggerScheduledAgent
+      x-mint:
+        href: /agents/reference/trigger-scheduled-agent
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '202': { description: '{ runId }.' }
         '402': { description: SUBSCRIPTION_REQUIRED (upgrade-plan handoff). }
@@ -1017,9 +2190,189 @@ paths:
     get:
       tags: [Scheduled agents]
       summary: Run history (failed runs carry a workspace-chat handoff)
+      description: |
+        Run history newest-first, in the canonical list envelope. Not
+        paginated — `nextCursor` is always `null`.
       operationId: listScheduledAgentRuns
+      x-mint:
+        href: /agents/reference/list-scheduled-agent-runs
       responses:
-        '200': { description: Run history newest-first. }
+        '200':
+          description: Run history in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { type: object, additionalProperties: true }
+
+  # ── Projects segment (tenancy) ───────────────────────────────────
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects (cursor-paginated; ?search=)
+      description: |
+        Projects are managed **from the parent**: every `/projects/*`
+        endpoint acts on the API key's own (parent) org and ignores the
+        `x-origami-project` header. Newest first; a parent with no
+        projects gets an empty page — "you have no projects" is not an
+        error.
+      operationId: listProjects
+      x-mint:
+        href: /agents/reference/list-projects
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: search
+          description: Case-insensitive substring match on the project name.
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of projects in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Project' }
+    post:
+      tags: [Projects]
+      summary: Create a project (child org)
+      description: |
+        Creates a project under the API key's parent org.
+        `monthlyCredits` is the optional per-project budget cap in
+        credits — `null` or omitted means uncapped. A child org's key
+        cannot create projects (nesting is one level deep) →
+        `400 PARENT_REQUIRED`.
+      operationId: createProject
+      x-mint:
+        href: /agents/reference/create-project
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                monthlyCredits:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+                  description: Monthly budget cap in credits; null/omitted = uncapped.
+      responses:
+        '201':
+          description: The created project.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400':
+          description: "VALIDATION_ERROR — bad body; or PARENT_REQUIRED — a child org's key cannot create projects."
+  /projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      summary: Fetch a project
+      operationId: getProject
+      x-mint:
+        href: /agents/reference/get-project
+      responses:
+        '200':
+          description: The project object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '404':
+          $ref: '#/components/responses/ProjectNotFound'
+    patch:
+      tags: [Projects]
+      summary: Update a project's name / budget cap
+      description: |
+        Partial update. For `monthlyCredits`, a number **sets** the cap,
+        an explicit `null` **clears** it, and omitting the field leaves
+        it alone.
+      operationId: updateProject
+      x-mint:
+        href: /agents/reference/update-project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                monthlyCredits:
+                  type: integer
+                  minimum: 1
+                  nullable: true
+                  description: Number sets the cap, explicit null clears it, omitted leaves it alone.
+      responses:
+        '200':
+          description: The updated project.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { description: VALIDATION_ERROR. }
+        '404':
+          $ref: '#/components/responses/ProjectNotFound'
+    delete:
+      tags: [Projects]
+      summary: Delete a project (two-step; ?confirm=true, ?dryRun=true)
+      description: |
+        Deletes the project (child org) and cascades across its whole
+        entity tree. Follows the v2 deletes convention — deliberately
+        two-step:
+
+        1. Without `?confirm=true` (or with `?dryRun=true`) → HTTP 200
+           with the impact preview
+           `{ id, name, confirmationRequired: true, willDelete: { workspaces, tables, rows } }`;
+           nothing removed.
+        2. With `?confirm=true` → deletes and returns
+           `{ id, name, deleted: true }`.
+      operationId: deleteProject
+      x-mint:
+        href: /agents/reference/delete-project
+      parameters:
+        - in: query
+          name: confirm
+          description: Must be `true` to actually delete. Omit for the impact preview.
+          schema: { type: boolean, default: false }
+        - in: query
+          name: dryRun
+          description: Force the impact preview even when confirm is set.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The impact preview (unconfirmed / dryRun) or the delete receipt (confirmed).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ProjectDeletePreview'
+                  - type: object
+                    required: [id, name, deleted]
+                    properties:
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+                      deleted: { type: boolean, const: true }
+        '404':
+          $ref: '#/components/responses/ProjectNotFound'
 
   # ── Account segment ──────────────────────────────────────────────
   /account:
@@ -1027,15 +2380,27 @@ paths:
       tags: [Account]
       summary: Org account overview (plan, capabilities, workspace usage)
       operationId: getAccount
+      x-mint:
+        href: /agents/reference/get-account
       responses:
-        '200': { description: The account overview. }
+        '200':
+          description: The account overview.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
   /account/credits:
     get:
       tags: [Account]
       summary: Credit balance (supersedes v1 GET /credits)
       operationId: getAccountCredits
+      x-mint:
+        href: /agents/reference/get-credits
       responses:
-        '200': { description: '{ balance, currency: "credits" }.' }
+        '200':
+          description: The credits object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Credits' }
 
 components:
   securitySchemes:
@@ -1091,18 +2456,107 @@ components:
       name: sequenceId
       required: true
       schema: { type: string, format: uuid }
-    StepId:
-      in: path
-      name: stepId
-      required: true
-      schema: { type: string, format: uuid }
     BatchId:
       in: path
       name: batchId
       required: true
       schema: { type: string, format: uuid }
+    EnrichmentRunId:
+      in: path
+      name: runId
+      required: true
+      description: The enrichment-run id (also its legacy `batchId`).
+      schema: { type: string, format: uuid }
+    CampaignId:
+      in: path
+      name: campaignId
+      required: true
+      description: The campaign id (a first-class `campaigns` row).
+      schema: { type: string, format: uuid }
+    ProjectId:
+      in: path
+      name: projectId
+      required: true
+      description: The project (child org) id.
+      schema: { type: string, format: uuid }
+    OrigamiProject:
+      in: header
+      name: x-origami-project
+      required: false
+      description: |
+        Project (child org) selector — accepted on **every** v2 request
+        except `/projects/*` (where it is ignored; see the Tenancy
+        section in the API description). Present → the request is
+        scoped to that project under the API key's parent org; absent →
+        the request acts on the parent. Malformed id →
+        `400 VALIDATION_ERROR`; unknown / cross-parent / deleted →
+        `404 PROJECT_NOT_FOUND`. Plan gate and rate limits stay on the
+        parent; billing draws on the parent wallet, subject to the
+        project's optional budget cap.
+      schema: { type: string, format: uuid }
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      description: |
+        Opaque pagination cursor. Pass the `nextCursor` from the previous
+        page to fetch the next one; omit for the first page.
+      schema: { type: string }
+    Limit:
+      in: query
+      name: limit
+      required: false
+      description: |
+        Max objects to return per page. Default 50, max 100 (the rows
+        endpoint allows up to 200 and documents its own `limit`).
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: false
+      description: |
+        Transport-level replay protection — any v2 `POST` may send it
+        (1–255 printable ASCII characters; UUIDs recommended). The first
+        response for a key is recorded and replayed verbatim for retries
+        with the same key + method/path/body for 24 hours; replayed
+        responses carry the `Idempotency-Replay: true` response header.
+        Reusing a key with a *different* request — or retrying while the
+        original is still in flight — returns `409 IDEMPOTENCY_ERROR`.
+        5xx responses are never recorded (the retry re-executes).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: '^[\x21-\x7e]{1,255}$'
+
+  headers:
+    IdempotencyReplay:
+      description: |
+        Present (literal `true`) when this response was replayed from a
+        previously recorded `Idempotency-Key` result rather than executed.
+      schema: { type: string, enum: ['true'] }
 
   schemas:
+    ListEnvelope:
+      type: object
+      description: |
+        The canonical v2 list envelope. Every list endpoint returns this
+        shape; per-endpoint `items` element types (and documented extras
+        like `total`) are declared on each operation.
+      required: [object, items, nextCursor, url]
+      properties:
+        object: { type: string, const: list }
+        items:
+          type: array
+          items: {}
+          description: The page of objects. Element type is per-endpoint.
+        nextCursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page; `null` means this is the last page.
+        url:
+          type: string
+          description: The path this list was fetched from (query string excluded).
     CreateAgentRequest:
       type: object
       required: [prompt]
@@ -1184,22 +2638,527 @@ components:
         model:
           type: string
           enum: [origami-lite, origami-max]
-    Pagination:
+    Workspace:
       type: object
-      required: [page, pageSize, total, hasMore]
-      description: |
-        Standard pagination envelope used by every v2 list endpoint.
-        Callers know to stop when `hasMore === false`; `total` is
-        the unfiltered row count for the listing's scope.
+      required: [object, id, name, createdByApi, url, createdAt]
       properties:
-        page: { type: integer, minimum: 0 }
-        pageSize: { type: integer, minimum: 1, maximum: 100 }
-        total: { type: integer, minimum: 0 }
-        hasMore: { type: boolean }
+        object: { type: string, const: workspace }
+        id: { type: string, format: uuid }
+        name: { type: string }
+        createdByApi:
+          type: boolean
+          description: True when the workspace was created through the API (upload-first bootstrap or agent auto-create).
+        url:
+          type: string
+          format: uri
+          description: Deep link a human can open.
+        createdAt: { type: string, format: date-time }
+    WorkspaceDeletePreview:
+      type: object
+      required: [workspaceId, name, confirmationRequired, willDelete]
+      description: |
+        Impact preview returned by `DELETE /workspaces/{workspaceId}` when
+        `?confirm=true` is absent. Nothing has been removed.
+      properties:
+        workspaceId: { type: string, format: uuid }
+        name: { type: string }
+        confirmationRequired: { type: boolean, const: true }
+        willDelete:
+          type: object
+          required: [tables, rows]
+          properties:
+            tables: { type: integer }
+            rows: { type: integer }
+    DocumentSummary:
+      type: object
+      required: [object, id, documentId, filename, vfsPath, kind, status, createdAt, updatedAt]
+      properties:
+        object: { type: string, const: document }
+        id: { type: string, format: uuid }
+        documentId:
+          type: string
+          format: uuid
+          description: Legacy alias of `id` — kept for pre-restructure consumers.
+        filename:
+          type: string
+          description: Last segment of the VFS path — the user-facing filename.
+        vfsPath: { type: string }
+        kind: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    DocumentDetail:
+      allOf:
+        - $ref: '#/components/schemas/DocumentSummary'
+        - type: object
+          required: [content]
+          properties:
+            content: { type: string }
+    UploadFilesRequest:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          minItems: 1
+          description: Per-request file cap enforced (over it → 413 TOO_MANY_FILES).
+          items:
+            type: object
+            required: [filename, content]
+            properties:
+              filename: { type: string, minLength: 1, maxLength: 255 }
+              content:
+                type: string
+                description: Base64-encoded file bytes.
+              mode:
+                type: string
+                enum: [table, append, document]
+                description: |
+                  `table` (CSV → new table; the default for `.csv`),
+                  `append` (CSV → existing table; requires `tableId`), or
+                  `document` (force document storage).
+              tableId:
+                type: string
+                format: uuid
+                description: Required when mode is `append` — the table to append CSV rows to.
+    Row:
+      type: object
+      required: [object, id, cells]
+      properties:
+        object: { type: string, const: row }
+        id: { type: string, format: uuid }
+        cells:
+          type: object
+          additionalProperties: true
+          description: |
+            Typed cells keyed by column slug. Each cell is polymorphic:
+            `scalar` (input columns), `value` (+ run metadata where present),
+            or `sequence` (a reference to the drafted sequence).
+    EnrichmentRun:
+      type: object
+      required: [object, id, batchId, tableId, type, status, createdAt, completedAt]
+      description: |
+        A tracked batch of column-over-row work on a table (upserts, file
+        ingests). `id` is canonical; `batchId` is the kept legacy alias
+        (identical value).
+      properties:
+        object: { type: string, const: enrichment_run }
+        id: { type: string, format: uuid }
+        batchId:
+          type: string
+          format: uuid
+          description: Legacy alias of `id` — kept for pre-restructure consumers.
+        tableId: { type: string, format: uuid }
+        type:
+          type: string
+          description: The run's work type (e.g. `upsert`).
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, nullable: true }
+    EnrichmentRunDetail:
+      allOf:
+        - $ref: '#/components/schemas/EnrichmentRun'
+        - type: object
+          required: [rowCount, enrichments, creditsUsed]
+          properties:
+            rowCount:
+              type: integer
+              description: |
+                Rows this run processed. For `upsert` runs this is the
+                per-row outcome ledger length (one entry per input row).
+            enrichments:
+              type: object
+              required: [total, completed, pending, failed]
+              properties:
+                total: { type: integer }
+                completed: { type: integer }
+                pending: { type: integer }
+                failed: { type: integer }
+            creditsUsed:
+              type: integer
+              description: Settled credit cost. `0` until the run reaches a terminal status.
+            outcomes:
+              type: array
+              description: Present only on `upsert`-type runs — the per-row outcome ledger.
+              items:
+                type: object
+                required: [inputIndex, rowId, outcome]
+                properties:
+                  inputIndex: { type: integer }
+                  rowId: { type: string, format: uuid, nullable: true }
+                  outcome: { type: string, enum: [inserted, updated, skipped] }
+            outcomeCounts:
+              type: object
+              description: Present only on `upsert`-type runs.
+              required: [inserted, updated, skipped]
+              properties:
+                inserted: { type: integer }
+                updated: { type: integer }
+                skipped: { type: integer }
+    UpsertReceipt:
+      type: object
+      required: [object, id, batchId, counts]
+      description: |
+        Response of `POST /tables/{tableId}/rows/upsert` and
+        `.../rows/upsert-file` — an `enrichment_run` reference the caller
+        polls via `GET /enrichment-runs/{runId}`.
+      properties:
+        object: { type: string, const: enrichment_run }
+        id: { type: string, format: uuid }
+        batchId:
+          type: string
+          format: uuid
+          description: Legacy alias of `id`.
+        counts:
+          type: object
+          required: [inserted, updated, skipped]
+          properties:
+            inserted: { type: integer }
+            updated: { type: integer }
+            skipped: { type: integer }
+    Campaign:
+      type: object
+      required: [object, id, slug, name, status, workspaceId, tableId, channels, settings, brief, outOfLeads, createdAt, updatedAt]
+      description: |
+        A first-class `campaigns` row — org-global, homed in a workspace.
+        Its queue is the set of sequences stamped with its id (one sequence
+        per person). It owns no table: `tableId` is derived (informational)
+        from the dominant table of its enrolled sequences.
+      properties:
+        object: { type: string, const: campaign }
+        id: { type: string, format: uuid }
+        slug: { type: string, nullable: true }
+        name: { type: string }
+        status:
+          type: string
+          enum: [draft, active, paused]
+          description: The campaign's lifecycle state.
+        workspaceId: { type: string, format: uuid }
+        tableId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Derived leads table (dominant enrolled-sequence table); null for a shell campaign.
+        channels:
+          type: object
+          required: [email, linkedin]
+          description: Which channels the campaign sends on.
+          properties:
+            email: { type: boolean }
+            linkedin: { type: boolean }
+        settings:
+          type: object
+          required: [blockActiveDuplicates, blockPriorContacts, autoTopUpEnabled]
+          description: Auto-cancel toggles + auto-refill, surfaced read-only.
+          properties:
+            blockActiveDuplicates: { type: boolean }
+            blockPriorContacts: { type: boolean }
+            autoTopUpEnabled: { type: boolean }
+        brief:
+          description: Agent-authored brief (audience prose + estimated size); null before drafting.
+          nullable: true
+        outOfLeads: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CampaignSummary:
+      type: object
+      required: [object, id, slug, name, status, peopleCount]
+      description: |
+        List-summary of a campaign (returned by the campaign list
+        endpoints).
+      properties:
+        object: { type: string, const: campaign }
+        id: { type: string, format: uuid, nullable: true }
+        slug: { type: string, nullable: true }
+        name: { type: string }
+        status: { type: string, enum: [draft, active, paused] }
+        peopleCount:
+          type: integer
+          description: Live enrolled sequences (people) — non-deleted, non-cancelled.
+    CampaignPerson:
+      type: object
+      required: [object, sequenceId, rowId, recipient, sendStatus, stopReason, profile, fitExplanation, fitScore, addedAt]
+      description: |
+        One person (enrolled sequence) in a campaign — the People-tab row
+        shape. Returned by `GET /campaigns/{campaignId}/people` and its
+        `/sequences` synonym.
+      properties:
+        object: { type: string, const: campaign_person }
+        sequenceId: { type: string, format: uuid }
+        rowId: { type: string, format: uuid, nullable: true }
+        recipient: { type: string, nullable: true }
+        sendStatus:
+          type: string
+          description: Aggregate send-status pill (draft / scheduled / sent / replied / …).
+        stopReason: { type: string, nullable: true }
+        profile:
+          nullable: true
+          description: Agent-injected identity (name / title / company / linkedin / website).
+        fitExplanation:
+          type: string
+          nullable: true
+          description: Agent-authored "why this person fits" write-up (markdown).
+        fitScore:
+          type: integer
+          nullable: true
+          description: 0–100 fit score of the source row, or null.
+        addedAt: { type: string, format: date-time, nullable: true }
+    CampaignStats:
+      type: object
+      required: [object, found, contacted, hasEmail, hasLinkedin, connectAccepted, connectSent, connectionRate, replied, replyRate]
+      description: Headline engagement stats for a campaign.
+      properties:
+        object: { type: string, const: campaign_stats }
+        found: { type: integer, description: People enrolled in the campaign. }
+        contacted: { type: integer, description: People actually reached (≥1 sent/accepted message). }
+        hasEmail: { type: boolean }
+        hasLinkedin: { type: boolean }
+        connectAccepted: { type: integer }
+        connectSent: { type: integer }
+        connectionRate: { type: number }
+        replied: { type: integer }
+        replyRate: { type: number }
+    CampaignTransition:
+      type: object
+      required: [object, id, status, launched]
+      description: |
+        Result of a deterministic lifecycle transition
+        (`launch` / `send` / `pause` / `resume`). Carries the transition
+        facts in exactly one of `launch` / `pause` / `resume` depending on
+        which transition ran.
+      properties:
+        object: { type: string, const: campaign }
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [draft, active, paused] }
+        launched:
+          type: integer
+          description: Drafts scheduled by this transition (0 unless launching/resuming).
+        launch:
+          type: object
+          description: Present on a launch/resume that scheduled work.
+          required: [scheduled, firstScheduledAt, missingRecipientCount, duplicateActiveCancelledCount, duplicatePriorCancelledCount]
+          properties:
+            scheduled: { type: integer }
+            firstScheduledAt: { type: string, format: date-time, nullable: true }
+            missingRecipientCount: { type: integer }
+            duplicateActiveCancelledCount: { type: integer }
+            duplicatePriorCancelledCount: { type: integer }
+            blocked:
+              type: object
+              required: [reason, message, missingChannels]
+              properties:
+                reason: { type: string }
+                message: { type: string }
+                missingChannels:
+                  type: array
+                  items: { type: string }
+        pause:
+          type: object
+          description: Present on a pause.
+          required: [stoppedSequences, haltedSteps, inFlightSending, alreadyPaused]
+          properties:
+            stoppedSequences: { type: integer }
+            haltedSteps: { type: integer }
+            inFlightSending: { type: integer }
+            alreadyPaused: { type: boolean }
+        resume:
+          type: object
+          description: Present on a resume.
+          required: [resumedSequences, noAccountSequences, missingChannels]
+          properties:
+            resumedSequences: { type: integer }
+            noAccountSequences: { type: integer }
+            missingChannels:
+              type: array
+              items: { type: string }
+    CampaignDeletePreview:
+      type: object
+      required: [id, name, confirmationRequired, status]
+      description: |
+        Impact preview returned by `DELETE /campaigns/{campaignId}` when
+        `?confirm=true` is absent (or `?dryRun=true` is set). Nothing has
+        been removed.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        confirmationRequired: { type: boolean, const: true }
+        status: { type: string, enum: [draft, active, paused] }
+    Project:
+      type: object
+      required: [object, id, name, monthlyCredits, usage, createdAt]
+      description: |
+        A project is a **child org** under the parent (agency) org — a
+        customer's own isolated set of workspaces/tables while credits
+        and the concurrency pool stay shared at the parent. Select it on
+        any non-`/projects` request via the `x-origami-project` header.
+      properties:
+        object: { type: string, const: project }
+        id: { type: string, format: uuid }
+        name: { type: string }
+        monthlyCredits:
+          type: number
+          nullable: true
+          description: Monthly budget cap in credits, or `null` when uncapped.
+        usage:
+          type: object
+          required: [spent, reserved]
+          description: |
+            This billing period's settled spend plus live in-flight
+            reservations attributed to the project, in credits — the
+            same numbers the in-app Teams page shows.
+          properties:
+            spent:
+              type: number
+              description: Settled charges this billing period, in credits.
+            reserved:
+              type: number
+              description: Live reservations held by in-flight work right now, in credits.
+        createdAt: { type: string, format: date-time }
+    ProjectDeletePreview:
+      type: object
+      required: [id, name, confirmationRequired, willDelete]
+      description: |
+        Impact preview returned by `DELETE /projects/{projectId}` when
+        `?confirm=true` is absent (or `?dryRun=true` is set). Nothing
+        has been removed.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        confirmationRequired: { type: boolean, const: true }
+        willDelete:
+          type: object
+          required: [workspaces, tables, rows]
+          properties:
+            workspaces: { type: integer }
+            tables: { type: integer }
+            rows: { type: integer }
+    SequenceSummary:
+      type: object
+      required: [object, id, sequenceId, campaignId, status, stopReason, sendStatus, tableId, columnId, rowId, workspaceId, url]
+      properties:
+        object: { type: string, const: sequence }
+        id: { type: string, format: uuid }
+        sequenceId:
+          type: string
+          format: uuid
+          description: Legacy alias of `id` — kept for pre-restructure consumers.
+        campaignId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The first-class campaigns-row id this thread is enrolled in — follow it into `GET /campaigns/{campaignId}`. Distinct from `columnId` (the outreach column); null for legacy campaign-less sequences.
+        status: { type: string }
+        stopReason: { type: string, nullable: true }
+        sendStatus: { type: string, nullable: true }
+        tableId: { type: string, format: uuid, nullable: true }
+        columnId: { type: string, format: uuid, nullable: true }
+        rowId: { type: string, format: uuid, nullable: true }
+        workspaceId: { type: string, format: uuid, nullable: true }
+        url:
+          type: string
+          format: uri
+          nullable: true
+          description: Deep link a human can open.
+    SequenceDetail:
+      allOf:
+        - $ref: '#/components/schemas/SequenceSummary'
+        - type: object
+          required: [steps]
+          properties:
+            steps:
+              type: array
+              items: { $ref: '#/components/schemas/SequenceStep' }
+    SequenceStep:
+      type: object
+      required: [object, id, stepId, channel, kind, status, subject, body, recipient, scheduledAt, sentAt]
+      properties:
+        object: { type: string, const: step }
+        id: { type: string, format: uuid }
+        stepId:
+          type: string
+          format: uuid
+          description: Legacy alias of `id` — kept for pre-restructure consumers.
+        channel: { type: string }
+        kind:
+          type: string
+          description: '`message` or `connect_request` (LinkedIn invites have no subject).'
+        status: { type: string }
+        subject: { type: string, nullable: true }
+        body: { type: string, nullable: true }
+        recipient: { type: string, nullable: true }
+        scheduledAt: { type: string, format: date-time, nullable: true }
+        sentAt: { type: string, format: date-time, nullable: true }
+    ScheduledAgent:
+      type: object
+      required: [object, id, workspaceId, slug, name, description, prompt, cron, model, enabled, planBlocked, nextRunAt, lastRunAt, url]
+      properties:
+        object: { type: string, const: scheduled_agent }
+        id: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        prompt: { type: string }
+        cron: { type: string }
+        model: { type: string, nullable: true }
+        enabled: { type: boolean }
+        planBlocked:
+          type: boolean
+          description: True when the org cannot currently run scheduled tasks (gated at dispatch).
+        nextRunAt: { type: string, format: date-time, nullable: true }
+        lastRunAt: { type: string, format: date-time, nullable: true }
+        url: { type: string, format: uri }
+        handoff:
+          type: object
+          description: Present when planBlocked — points the caller at the upgrade flow.
+    Account:
+      type: object
+      required: [object, organization, plan, capabilities, workspaces]
+      properties:
+        object: { type: string, const: account }
+        organization:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, nullable: true }
+        plan:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        capabilities:
+          type: object
+          required: [canUseApi, canRunScheduledTasks, concurrentAgents]
+          properties:
+            canUseApi: { type: boolean }
+            canRunScheduledTasks: { type: boolean }
+            concurrentAgents:
+              type: integer
+              nullable: true
+              description: null = unlimited.
+        workspaces:
+          type: object
+          required: [used, limit]
+          properties:
+            used: { type: integer }
+            limit:
+              type: integer
+              nullable: true
+              description: null = unlimited.
+    Credits:
+      type: object
+      required: [object, balance, currency]
+      properties:
+        object: { type: string, const: credits }
+        balance: { type: number }
+        currency: { type: string, const: credits }
     AgentSummary:
       type: object
-      required: [id, name, workspaceId, createdAt]
+      required: [object, id, name, workspaceId, createdAt]
       properties:
+        object: { type: string, const: agent }
         id: { type: string, format: uuid }
         name: { type: string }
         workspaceId: { type: string, format: uuid }
@@ -1238,8 +3197,9 @@ components:
         `superseded` value.
     RunSummary:
       type: object
-      required: [id, agentId, status, prompt, model, steps, startedAt]
+      required: [object, id, agentId, status, prompt, model, steps, startedAt]
       properties:
+        object: { type: string, const: run }
         id: { type: string }
         agentId: { type: string, format: uuid }
         status: { $ref: '#/components/schemas/RunStatus' }
@@ -1516,9 +3476,10 @@ components:
             code only — never via the upsert API.
     WorkspaceColumn:
       type: object
-      required: [id, name, slug, kind, autoTrigger]
+      required: [object, id, name, slug, kind, autoTrigger]
       description: Column metadata returned by `GET /tables/{tableId}/columns`.
       properties:
+        object: { type: string, const: column }
         id: { type: string, format: uuid }
         name: { type: string }
         slug:
@@ -1532,8 +3493,9 @@ components:
           description: True when the column runs automatically on new leads.
     TableColumn:
       type: object
-      required: [id, name, type, kind, slug, autoTrigger, credits, cells]
+      required: [object, id, name, type, kind, slug, autoTrigger, credits, cells]
       properties:
+        object: { type: string, const: column }
         id: { type: string, format: uuid }
         name: { type: string }
         type:
@@ -1650,8 +3612,9 @@ components:
         total: { type: integer }
     Table:
       type: object
-      required: [id, workspaceId, name, leadCount, columns, credits, cells, url, createdAt, updatedAt]
+      required: [object, id, workspaceId, name, leadCount, columns, credits, cells, url, createdAt, updatedAt]
       properties:
+        object: { type: string, const: table }
         id: { type: string, format: uuid }
         workspaceId: { type: string, format: uuid }
         name: { type: string }
@@ -1968,3 +3931,13 @@ components:
               - example:
                   error: Run not found
                   code: RUN_NOT_FOUND
+    ProjectNotFound:
+      description: Project not found (unknown, cross-parent, or deleted — no existence leak)
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorEnvelope'
+              - example:
+                  error: Project not found
+                  code: PROJECT_NOT_FOUND

@@ -1,101 +1,126 @@
 ---
 title: "Reading data"
-description: "Filter, sort, and export enriched table data via the API."
+description: "Filter, sort, paginate, and export enriched table rows with the v2 API."
 ---
 
-<Note>
-  This page documents the **v1 (deprecated)** read endpoint. For new integrations, read rows
-  with the v2 endpoint [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows),
-  which returns typed cells and supports `?cells=flat` for this same flat shape. v1 stays
-  fully functional — see the [migration guide](/api-v1-to-v2-migration).
-</Note>
-
-The `GET /tables/{tableId}/rows` endpoint returns enriched row data with support for
-filtering, sorting, column selection, and CSV export.
+[`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows) returns a
+table's rows with support for filtering, sorting, cursor pagination, and CSV
+export. Reads are free.
 
 ## Basic request
 
 ```bash
-curl "https://origami.chat/api/v1/tables/TABLE_ID/rows" \
-  -H "Authorization: Bearer og_live_YOUR_KEY"
+curl "https://origami.chat/api/v2/tables/TABLE_ID/rows" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
 
-By default this returns up to 50 rows per page, with your table's saved filters and
-sort order applied (the same view you see in the Origami dashboard).
+Rows come back in the standard list envelope, plus a top-level `total` (the
+filtered row count for the whole query, across all pages). Each row is a typed
+object keyed by column slug.
+
+```json
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "row",
+      "id": "a1b2c3d4-…",
+      "cells": {
+        "company-name": { "type": "scalar", "value": "Acme Corp" },
+        "website": { "type": "scalar", "value": "acme.com" },
+        "ceo-email": { "type": "value", "value": "ceo@acme.com" }
+      }
+    }
+  ],
+  "nextCursor": "eyJ…",
+  "total": 150,
+  "url": "/api/v2/tables/TABLE_ID/rows"
+}
+```
+
+By default the table's saved filters and sort order apply — the same view you see
+in the Origami dashboard.
+
+### Typed vs flat cells
+
+Cells are polymorphic by default: `scalar` for input columns, `value` (with run
+metadata where present) for enrichments, and `sequence` for outreach columns.
+For the simpler v1-style `{ slug: value }` rows, pass `?cells=flat`.
+
+```bash
+curl "https://origami.chat/api/v2/tables/TABLE_ID/rows?cells=flat" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
 
 ## Pagination
 
-Use `page` (zero-based) and `pageSize` (max 500) to paginate through results.
+Pagination is cursor-based. Read the first page, then pass its `nextCursor` back
+as the `cursor` parameter to get the next one. Stop when `nextCursor` is `null`.
 
 ```bash
-curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?page=2&pageSize=100" \
-  -H "Authorization: Bearer og_live_YOUR_KEY"
+curl "https://origami.chat/api/v2/tables/TABLE_ID/rows?limit=200&cursor=eyJ…" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
 
-The response includes `total` (total matching rows), `page`, and `pageSize` so you
-know when you've reached the end.
+`limit` defaults to 50. This endpoint allows up to **200** rows per page (most
+other list endpoints cap at 100). There is no `page` or `pageSize`.
 
 ## Filtering
 
-Pass a JSON-encoded array of filter objects in the `filters` query parameter.
-Each filter uses a column **slug** (from `GET /tables`), an `operator`, and a `value`.
+Pass a JSON-encoded array of filter objects in the `filters` parameter. Each
+filter uses a column **slug**, an `operator`, and a `value`.
 
 ```bash
-curl -G "https://origami.chat/api/v1/tables/TABLE_ID/rows" \
-  -H "Authorization: Bearer og_live_YOUR_KEY" \
+curl -G "https://origami.chat/api/v2/tables/TABLE_ID/rows" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
   --data-urlencode 'filters=[{"column":"website","operator":"is_not_empty","value":""}]'
 ```
 
 Available operators: `contains`, `not_contains`, `equals`, `not_equals`,
 `is_empty`, `is_not_empty`, `greater_than`, `greater_than_or_equal`,
-`less_than`, `less_than_or_equal`.
-
-<Warning>
-  When you pass `filters`, the table's saved default filters are **replaced** — not merged.
-</Warning>
+`less_than`, `less_than_or_equal`. An unknown column slug returns
+`UNKNOWN_COLUMN`.
 
 ## Sorting
 
-Pass a JSON-encoded sort object with a column **slug** and `direction` (`asc` or `desc`).
+Pass a JSON-encoded sort object with a column **slug** and `direction`.
 
 ```bash
-curl -G "https://origami.chat/api/v1/tables/TABLE_ID/rows" \
-  -H "Authorization: Bearer og_live_YOUR_KEY" \
+curl -G "https://origami.chat/api/v2/tables/TABLE_ID/rows" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
   --data-urlencode 'sort={"column":"quality-score","direction":"desc"}'
 ```
 
-Like filters, this replaces the table's default sort order.
-
-## Column selection
-
-Return only specific columns by passing a comma-separated list of slugs.
-
-```bash
-curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?columns=company-name,website,ceo-email" \
-  -H "Authorization: Bearer og_live_YOUR_KEY"
-```
-
-Omit the `columns` parameter to return all columns.
-
 ## Bypassing saved defaults
 
-By default, the API applies the same filters and sort order you see in the Origami
-dashboard. Set `defaults=false` to get all rows unfiltered, in insertion order.
+By default the API applies the table's saved filters and sort order. Set
+`defaults=false` to read all rows unfiltered, in insertion order.
 
 ```bash
-curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?defaults=false" \
-  -H "Authorization: Bearer og_live_YOUR_KEY"
+curl "https://origami.chat/api/v2/tables/TABLE_ID/rows?defaults=false" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
 
 ## CSV export
 
-Set `format=csv` to get the response as a CSV file instead of JSON.
+Set `format=csv` to stream the (flat) rows as a CSV file instead of JSON —
+column names as headers, ready for a spreadsheet.
 
 ```bash
-curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?format=csv&pageSize=500" \
-  -H "Authorization: Bearer og_live_YOUR_KEY" \
+curl "https://origami.chat/api/v2/tables/TABLE_ID/rows?format=csv&limit=200" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
   -o export.csv
 ```
 
-This returns a standard CSV with column names as headers — ready for Excel,
-Google Sheets, or any other spreadsheet tool.
+## Reading a single row or cell
+
+To read one row, use
+[`GET /api/v2/tables/{tableId}/rows/{rowId}`](/agents/reference/get-row). To read
+a single cell — with its run metadata — use
+[`GET /api/v2/tables/{tableId}/rows/{rowId}/cells/{columnId}`](/agents/reference/get-cell).
+
+<Note>
+  This page covers the v2 read endpoint. The deprecated v1 `GET /tables/{tableId}/rows`
+  (offset pagination, flat rows) still works — see the
+  [migration guide](/api-v1-to-v2-migration).
+</Note>

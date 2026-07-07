@@ -1,71 +1,80 @@
 ---
 title: "Introduction"
-description: "Enrich company and people data programmatically with the Origami API."
+description: "Build, enrich, and read lead data programmatically with the Origami API."
 ---
 
-The Origami API comes in two halves. This **Data API (v1)** is for moving data in and out
-of tables you already have: push in raw company or contact rows, let your table's columns
-enrich them, and read the results back — emails, employee counts, technographics, and
-whatever else those columns produce. Reads are free.
+Origami is an AI-powered lead generation and data enrichment platform. The
+**v2 API** is the single canonical way to drive it from your own code. There are
+two ways to use it:
 
-If you want the AI to *do the work* — research a market, find leads, decide which columns
-to add — that's the [Agent API (v2)](/agents). Hand it a brief and it builds the table for
-you.
+- **Let the agent do the work.** Hand Origami a brief in plain English and it
+  researches a market, finds leads, and builds a table for you.
+- **Bring your own data.** Push rows into a table, let the table's columns enrich
+  them, and read the results back — emails, employee counts, technographics, and
+  whatever else those columns produce.
+
+The API is resource-oriented and self-describing. If you've used Stripe, it will
+feel familiar. Start with [objects and relationships](/agents/objects) to learn
+the handful of objects everything is built from.
 
 <Tip>
-  Need the full spec? [Download the OpenAPI file](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v1.yaml) for AI coding assistants, client generators, or Postman.
+  Building with an AI coding assistant? [Download the OpenAPI spec](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v2.yaml)
+  for client generators, Postman, or your editor — or install the
+  [Origami skill](/agents/skill).
 </Tip>
 
-## How it works
+## Base URL
 
-<Steps>
-  <Step title="Create an API key">
-    Go to **Settings → API Keys** in the Origami app and generate a key.
-    It starts with `og_live_` and is shown once — save it securely.
-  </Step>
-  <Step title="List your tables">
-    Call `GET /tables` to see your tables, their columns, and their slugs.
-    Find the table you want to enrich into.
-  </Step>
-  <Step title="Insert rows">
-    `POST /tables/{tableId}/rows` with your raw data. Origami starts enriching
-    immediately and returns a `batchId`.
-  </Step>
-  <Step title="Poll for results">
-    Call `GET /batches/{batchId}` to check progress. When complete, the response
-    includes all enriched row data and credits used.
-  </Step>
-</Steps>
+All v2 requests go to:
+
+```text
+https://origami.chat/api/v2
+```
+
+Authenticate with a Bearer API key. See [authentication](/authentication).
+
+## Core conventions
+
+A few conventions hold across every endpoint:
+
+- **Self-describing objects.** Every object carries an `object` field naming its
+  type (`"agent"`, `"table"`, `"campaign"`, …).
+- **One list envelope.** Every list endpoint returns
+  `{ "object": "list", "items": [...], "nextCursor": string | null, "url": string }`.
+  Pass `nextCursor` back as `cursor` to page; `null` means the last page.
+- **Async agent work.** `POST /agents` and `POST /agents/{id}/runs` return a
+  `running` run immediately. Poll until `status` is terminal, honoring
+  `Retry-After`.
+- **Idempotency.** Any `POST` may send an `Idempotency-Key` header for safe
+  retries.
+- **Errors.** Every error is `{ error, code, details?, handoff? }` with an
+  `UPPERCASE_SNAKE_CASE` code.
 
 ## Quick links
 
 <CardGroup cols={2}>
+  <Card title="Objects and relationships" icon="diagram-project" href="/agents/objects">
+    The objects the API is built from and how they connect.
+  </Card>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
-    End-to-end walkthrough with curl examples.
+    Enrich your first table end to end with curl.
   </Card>
   <Card title="Authentication" icon="key" href="/authentication">
-    How to create and manage API keys.
+    API keys, rate limits, and project scoping.
   </Card>
   <Card title="Reading data" icon="table" href="/reading-data">
-    Filter, sort, and export enriched rows.
+    Filter, sort, paginate, and export rows.
   </Card>
   <Card title="Agent API" icon="robot" href="/agents">
     Drive Origami's AI worker from a plain-English brief.
   </Card>
+  <Card title="Migrating from v1" icon="arrow-right" href="/api-v1-to-v2-migration">
+    Map every deprecated v1 route to its v2 equivalent.
+  </Card>
 </CardGroup>
 
-## Base URL
-
-All API requests go to:
-
-```text
-https://origami.chat/api/v1
-```
-
-## Async model
-
-All write endpoints are **asynchronous**. A `POST` returns a `batchId` immediately —
-poll `GET /batches/{batchId}` to check progress and retrieve enriched results.
-
-- For fast results, poll every **2–5 seconds**.
-- For background processing, poll every **30–60 seconds**.
+<Note>
+  The **Data API (v1)** is deprecated but still fully functional, with no removal
+  date in this release. New integrations should target v2. See the
+  [migration guide](/api-v1-to-v2-migration).
+</Note>

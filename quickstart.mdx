@@ -1,102 +1,141 @@
 ---
 title: "Quickstart"
-description: "Enrich your first batch of companies in under 5 minutes."
+description: "Enrich your first batch of companies with the v2 API in under 5 minutes."
 ---
 
+This walkthrough brings your own rows into a table, enriches them, and reads the
+results back. To have the agent build a table from a brief instead, follow the
+[agent quickstart](/agents/quickstart).
+
 <Tip>
-  Building with an AI coding assistant? Download the full [OpenAPI specification](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v1.yaml) and paste it into your preferred tool.
+  Building with an AI coding assistant? Download the
+  [OpenAPI spec](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v2.yaml)
+  and paste it into your tool, or install the [Origami skill](/agents/skill).
 </Tip>
 
 ## Prerequisites
 
 - An Origami account with at least one table set up
-- An API key (create one in **Settings → API Keys**)
-
-## Step 1: List your tables
-
-Find the table you want to enrich into. The response shows each table's columns,
-so you know which fields to include in your rows.
+- An API key (create one in **Settings → API keys**)
 
 ```bash
-curl https://origami.chat/api/v1/tables \
-  -H "Authorization: Bearer og_live_YOUR_KEY"
+export ORIGAMI_API_KEY=og_live_your_key_here
+```
+
+## Step 1: Find your table and its columns
+
+List tables to find the one you want to write into. The response is the standard
+list envelope — objects under `items`, with `nextCursor` for paging.
+
+```bash
+curl "https://origami.chat/api/v2/tables" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
 
 ```json Example response
 {
-  "tables": [
+  "object": "list",
+  "items": [
     {
+      "object": "table",
       "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+      "workspaceId": "9b7c…",
       "name": "Series A SaaS Companies",
-      "workspaceName": "Outbound Q2",
-      "rowCount": 150,
-      "columns": [
-        { "name": "Company Name", "slug": "company-name", "kind": "input" },
-        { "name": "Website", "slug": "website", "kind": "input" },
-        { "name": "CEO Email", "slug": "ceo-email", "kind": "enrichment", "autoTrigger": true }
-      ]
+      "leadCount": 150,
+      "url": "https://origami.chat/workspace/9b7c…?table=d290f1ee…"
     }
   ],
-  "total": 1,
-  "page": 0,
-  "pageSize": 50
+  "nextCursor": null,
+  "url": "/api/v2/tables"
 }
 ```
 
-Note the `id` and the input column **slugs** — you'll use these as field names in the next step.
-
-## Step 2: Insert rows
-
-Post your raw data using column **slugs** as field names (from Step 1).
-Enrichment starts automatically.
+Then read the table's columns to get the input-column **slugs** — you'll use these
+as row keys in the next step.
 
 ```bash
-curl -X POST https://origami.chat/api/v1/tables/TABLE_ID/rows \
-  -H "Authorization: Bearer og_live_YOUR_KEY" \
+curl "https://origami.chat/api/v2/tables/TABLE_ID/columns" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+```json Columns
+{
+  "object": "list",
+  "items": [
+    { "object": "column", "name": "Company Name", "slug": "company-name", "kind": "input" },
+    { "object": "column", "name": "Website", "slug": "website", "kind": "input" },
+    { "object": "column", "name": "CEO Email", "slug": "ceo-email", "kind": "enrichment", "autoTrigger": true }
+  ],
+  "nextCursor": null,
+  "url": "/api/v2/tables/TABLE_ID/columns"
+}
+```
+
+Only `input` columns are writable. Enrichment, score, and sequence columns are
+populated automatically.
+
+## Step 2: Upsert rows
+
+v2 has one row-write primitive: **upsert**. Rows are keyed by input-column slug.
+`matchColumns` decides identity — a row matching an existing row on every match
+value updates it; a non-matching row inserts. An insert-only call is just an
+upsert whose rows match nothing.
+
+```bash
+curl -X POST https://origami.chat/api/v2/tables/TABLE_ID/rows/upsert \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "rows": [
       { "company-name": "Acme Corp", "website": "acme.com" },
       { "company-name": "Beta Inc", "website": "beta.io" }
-    ]
+    ],
+    "matchColumns": ["website"]
   }'
 ```
 
+The response references an **enrichment run** — the tracked batch of work — that
+you poll next.
+
 ```json Response
 {
-  "batchId": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+  "object": "enrichment_run",
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "batchId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "counts": { "inserted": 2, "updated": 0, "skipped": 0 }
 }
 ```
 
 <Tip>
-  Set `"enrich": false` in the request body to insert rows without triggering enrichment.
+  Set `"enrich": false` to upsert without triggering enrichment. To also
+  re-enrich rows the upsert *updated*, set `"reenrichUpdated": true`.
 </Tip>
 
 <Info>
-  For safe retries, include a `"batchId"` (any UUID you generate) in the request body.
-  If the request is retried with the same `batchId`, Origami returns the existing batch
-  instead of inserting duplicate rows.
+  For safe retries, include a `"batchId"` (any UUID you generate) in the body, or
+  send an `Idempotency-Key` header. A retry with the same `batchId` returns the
+  existing run instead of writing duplicate rows.
 </Info>
 
-## Step 3: Poll for results
+## Step 3: Poll the enrichment run
 
-Use the `batchId` to check progress. Keep polling until `status` is `"complete"`.
+Use the run `id` to check progress. Keep polling until `status` is terminal.
 
 ```bash
-curl https://origami.chat/api/v1/batches/BATCH_ID \
-  -H "Authorization: Bearer og_live_YOUR_KEY"
+curl "https://origami.chat/api/v2/enrichment-runs/RUN_ID" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
 
 <CodeGroup>
-```json Processing
+```json Running
 {
-  "batchId": "f47ac10b-...",
-  "tableId": "d290f1ee-...",
-  "type": "insert",
-  "status": "processing",
+  "object": "enrichment_run",
+  "id": "f47ac10b-…",
+  "tableId": "d290f1ee-…",
+  "type": "upsert",
+  "status": "running",
   "rowCount": 2,
   "enrichments": { "total": 4, "completed": 1, "pending": 3, "failed": 0 },
-  "failures": {},
   "creditsUsed": 0,
   "createdAt": "2025-07-01T14:30:00Z",
   "completedAt": null
@@ -105,58 +144,51 @@ curl https://origami.chat/api/v1/batches/BATCH_ID \
 
 ```json Complete
 {
-  "batchId": "f47ac10b-...",
-  "tableId": "d290f1ee-...",
-  "type": "insert",
-  "status": "complete",
+  "object": "enrichment_run",
+  "id": "f47ac10b-…",
+  "tableId": "d290f1ee-…",
+  "type": "upsert",
+  "status": "completed",
   "rowCount": 2,
   "enrichments": { "total": 4, "completed": 4, "pending": 0, "failed": 0 },
-  "failures": {},
-  "columns": {
-    "company-name": "Company Name",
-    "website": "Website",
-    "ceo-email": "CEO Email",
-    "employee-count": "Employee Count"
-  },
-  "rows": [
-    {
-      "id": "a1b2c3d4-...",
-      "company-name": "Acme Corp",
-      "website": "acme.com",
-      "ceo-email": "ceo@acme.com",
-      "employee-count": 150
-    },
-    {
-      "id": "b2c3d4e5-...",
-      "company-name": "Beta Inc",
-      "website": "beta.io",
-      "ceo-email": "founder@beta.io",
-      "employee-count": 42
-    }
-  ],
   "creditsUsed": 12,
+  "outcomeCounts": { "inserted": 2, "updated": 0, "skipped": 0 },
   "createdAt": "2025-07-01T14:30:00Z",
   "completedAt": "2025-07-01T14:31:15Z"
 }
 ```
 </CodeGroup>
 
-## Step 4: Read all table data (optional)
+For `upsert` runs, the detail response also carries a per-row `outcomes[]` ledger
+telling you exactly which input row inserted, updated, or was skipped.
 
-To pull all rows from a table (not just from one batch), use the read endpoint:
+## Step 4: Read the enriched rows
+
+Pull rows from the table. Reads are free. By default cells are typed; add
+`?cells=flat` for the simpler `{ slug: value }` shape, or `?format=csv` to
+download a spreadsheet.
 
 ```bash
-curl "https://origami.chat/api/v1/tables/TABLE_ID/rows?pageSize=100" \
-  -H "Authorization: Bearer og_live_YOUR_KEY"
+curl "https://origami.chat/api/v2/tables/TABLE_ID/rows?cells=flat" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
+
+See [reading data](/reading-data) for filters, sorting, pagination, and CSV
+export.
 
 ## What's next
 
 <CardGroup cols={2}>
-  <Card title="Authentication" icon="key" href="/authentication">
-    Managing API keys and security best practices.
+  <Card title="Objects and relationships" icon="diagram-project" href="/agents/objects">
+    The objects the API is built from and how they connect.
+  </Card>
+  <Card title="Agent quickstart" icon="robot" href="/agents/quickstart">
+    Let the agent build the table from a plain-English brief.
   </Card>
   <Card title="Reading data" icon="table" href="/reading-data">
     Filter, sort, and export your enriched rows.
+  </Card>
+  <Card title="Authentication" icon="key" href="/authentication">
+    Managing API keys and project scoping.
   </Card>
 </CardGroup>
