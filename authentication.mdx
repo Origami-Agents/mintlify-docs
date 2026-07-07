@@ -1,15 +1,16 @@
 ---
 title: "Authentication"
-description: "Create and manage API keys for programmatic access."
+description: "Create and manage API keys, scope requests to projects, and stay within rate limits."
 ---
 
-The Origami API uses **API keys** for authentication. Each key is scoped to your
-organization and has access to all tables and workspaces within it.
+The Origami API uses **API keys** for authentication. Every key is
+**parent-wide**: it belongs to your parent (agency) organization and can act on
+the parent or any of its projects.
 
 ## Creating an API key
 
-1. Go to **Settings → API Keys** in the Origami app
-2. Click **Create API Key**
+1. Go to **Settings → API keys** in the Origami app
+2. Click **Create API key**
 3. Give it a descriptive name (e.g. "n8n integration", "CRM sync")
 4. Copy the key immediately — it's shown only once
 
@@ -19,7 +20,7 @@ API keys follow the format:
 og_live_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcd
 ```
 
-The `og_live_` prefix makes keys identifiable in leaked credential scans (GitHub
+The `og_live_` prefix makes keys identifiable in leaked-credential scans (GitHub
 secret scanning, GitGuardian, etc.).
 
 ## Using your API key
@@ -27,56 +28,97 @@ secret scanning, GitGuardian, etc.).
 Pass the key in the `Authorization` header as a Bearer token:
 
 ```bash
-curl https://origami.chat/api/v1/tables \
+curl https://origami.chat/api/v2/account \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
-Every request must include this header. Requests without a valid key return `401 Unauthorized`.
-Requests from organizations on a free plan return `402 Payment Required` with
-`code: "SUBSCRIPTION_REQUIRED"` — upgrade to a paid plan to use the API.
+Every request must include this header. Requests without a valid key return
+`401 UNAUTHORIZED`. Organizations whose plan doesn't include API access return
+`402` with `code: "SUBSCRIPTION_REQUIRED"` — upgrade to a plan with API access.
+
+## Projects and the x-origami-project header
+
+Because keys are parent-wide, you choose which org a request acts on with the
+`x-origami-project` header:
+
+- **Omit it** to act on the parent org.
+- **Send `x-origami-project: <projectId>`** to scope the request to that
+  [project](/agents/reference/list-projects) (a child org). All org-scoped
+  resources — workspaces, tables, agents, outreach — then operate inside the
+  project.
+
+```bash
+curl https://origami.chat/api/v2/tables \
+  -H "Authorization: Bearer og_live_YOUR_KEY" \
+  -H "x-origami-project: 3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90"
+```
+
+Two endpoints ignore the header: `/projects/*` always manages projects from the
+parent, and `/account` is always parent-scoped.
+
+The header fails closed. A malformed id returns `400 VALIDATION_ERROR`; an
+unknown, cross-parent, or deleted project returns `404 PROJECT_NOT_FOUND`. The
+plan gate and rate limits stay keyed to the parent, and the concurrent-agent pool
+is shared across the whole parent. Credits spent inside a project draw on the
+parent's shared wallet, subject to the project's optional `monthlyCredits` budget
+cap.
+
+<Info>
+  Manage projects with the [Projects endpoints](/agents/reference/list-projects).
+  See [objects and relationships](/agents/objects#tenancy-parent-org-and-projects)
+  for how tenancy fits together.
+</Info>
 
 ## Key management
 
-- **Multiple keys:** Create as many keys as you need — one per integration is recommended.
-- **Revocation:** Revoke a key anytime from the API Keys settings page. Revoked keys
-  return `401` immediately.
-- **Rotation:** To rotate a key, create a new one, update your integration, then revoke the old one.
-- **Identification:** The UI shows the last 4 characters of each key for identification.
+- **Multiple keys:** Create as many keys as you need — one per integration is
+  recommended.
+- **Revocation:** Revoke a key anytime from the API keys settings page. Revoked
+  keys return `401` immediately.
+- **Rotation:** To rotate a key, create a new one, update your integration, then
+  revoke the old one.
+- **Identification:** The UI shows the last 4 characters of each key.
 
 ## Security best practices
 
 <Warning>
-  Never commit API keys to source control. Use environment variables or a secrets manager.
+  Never commit API keys to source control. Use environment variables or a secrets
+  manager.
 </Warning>
 
 - Store keys in environment variables (`ORIGAMI_API_KEY`) or a secrets manager
 - Use separate keys for development and production
 - Revoke keys immediately if they may have been exposed
-- Review the API Keys settings page periodically and remove unused keys
+- Review the API keys settings page periodically and remove unused keys
 
 ## Rate limits
 
-Every API key in your organization shares the same quota. Additional per-IP
-limits may apply to protect against abuse.
+Limits apply per client IP and per organization. Both stay keyed to the parent
+org, even when a request is scoped to a project.
 
 | Scope | Limit |
 |-------|-------|
-| Per organization, all endpoints | **100 requests / minute** |
-| Per organization, `POST /tables/{tableId}/rows` | **10 requests / minute** |
+| Per client IP | **300 requests / minute** |
+| Per organization | **100 requests / minute** |
+| Concurrent agent runs (per organization) | **Plan-tunable** (1 on starter, 3 on pro, 10 on scale, 20 on ultra, unlimited on enterprise) |
 
-<Info>
-  Rate limits use a sliding window. If you hit the limit, wait for the window to
-  reset rather than retrying immediately.
-</Info>
+The scarce resource for agent work is the concurrent-run slot — exceeding it
+returns `429` with `code: "CONCURRENT_LIMIT_EXCEEDED"` and a `Retry-After`
+header.
 
-When rate-limited, the API returns `429 Too Many Requests`. Every response
-includes headers so you can track usage proactively:
+When rate-limited, the API returns `429 Too Many Requests`. Responses carry
+usage headers so you can track quota proactively:
 
 | Header | Description |
 |--------|-------------|
-| `X-RateLimit-Limit-Global` | Maximum requests allowed in the window |
-| `X-RateLimit-Remaining-Global` | Requests remaining in the current window |
-| `X-RateLimit-Reset-Global` | Unix timestamp when the window resets |
-| `X-RateLimit-Limit-Insert` | Maximum insert requests allowed in the window (write routes only) |
-| `X-RateLimit-Remaining-Insert` | Insert requests remaining in the current window |
-| `X-RateLimit-Reset-Insert` | Unix timestamp when the window resets |
+| `X-RateLimit-Limit-IP` | Maximum requests allowed in the per-IP window |
+| `X-RateLimit-Remaining-IP` | Requests remaining in the current per-IP window |
+| `X-RateLimit-Reset-IP` | When the per-IP window resets |
+| `X-RateLimit-Limit-Global` | Maximum requests allowed in the per-org window |
+| `X-RateLimit-Remaining-Global` | Requests remaining in the current per-org window |
+| `X-RateLimit-Reset-Global` | When the per-org window resets |
+
+<Info>
+  Rate limits use a sliding window. If you hit the limit, honor `Retry-After`
+  rather than retrying immediately.
+</Info>

@@ -10,11 +10,15 @@ description: "Run Origami's agent from your own code: send a brief, get back a t
 The v2 API runs Origami's agent from your code. You send it a brief in plain English,
 it does the research and builds a table, and you read the result back.
 
-You work with three resources, all documented in the reference:
+The core loop uses three objects:
 
 - **[Agent](/agents/reference/create-agent)** — a worker in your org. Create one and reuse it.
 - **[Run](/agents/reference/send-run)** — one brief and the work that follows. An agent does one run at a time.
 - **[Table](/agents/reference/get-table)** — what the agent builds. Read its rows with [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows).
+
+The wider API adds workspaces, documents, enrichment runs, campaigns, sequences,
+scheduled agents, and projects. See [objects and relationships](/agents/objects)
+for the whole map and how everything connects.
 
 ## How runs work
 
