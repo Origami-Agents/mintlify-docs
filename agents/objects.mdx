@@ -159,6 +159,9 @@ for details.
   [`GET /tables/{tableId}/rows/{rowId}`](/agents/reference/get-row). Write with
   [`POST /tables/{tableId}/rows/upsert`](/agents/reference/upsert-rows) or the
   CSV variant [`.../rows/upsert-file`](/agents/reference/upsert-rows-file).
+  Bulk soft-delete with
+  [`DELETE /tables/{tableId}/rows`](/agents/reference/delete-rows) (up to 100
+  row ids per call).
 </ResponseField>
 
 <ResponseField name="Cell" type="object">

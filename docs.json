@@ -91,6 +91,7 @@
             "pages": [
               "POST /tables/{tableId}/rows/upsert",
               "POST /tables/{tableId}/rows/upsert-file",
+              "DELETE /tables/{tableId}/rows",
               "POST /tables/{tableId}/cancel"
             ]
           },

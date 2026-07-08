@@ -1,6 +1,6 @@
 ---
 title: "Reading data"
-description: "Filter, sort, paginate, and export enriched table rows with the v2 API."
+description: "Filter, sort, paginate, export, and delete enriched table rows with the v2 API."
 ---
 
 [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows) returns a
@@ -118,6 +118,35 @@ To read one row, use
 [`GET /api/v2/tables/{tableId}/rows/{rowId}`](/agents/reference/get-row). To read
 a single cell — with its run metadata — use
 [`GET /api/v2/tables/{tableId}/rows/{rowId}/cells/{columnId}`](/agents/reference/get-cell).
+
+## Deleting rows
+
+To soft-delete rows in bulk, call
+[`DELETE /api/v2/tables/{tableId}/rows`](/agents/reference/delete-rows) with up to
+**100** row ids. Each row and its cells, cell runs, and active sequences cascade
+off. Ids that don't belong to the table, belong to another org, or are already
+deleted are skipped — so `deleted` may be less than `requested`. A repeat delete of
+the same ids is idempotent (`deleted: 0`). Deleted rows are recoverable via the
+app's restore flow.
+
+```bash
+curl -X DELETE "https://origami.chat/api/v2/tables/TABLE_ID/rows" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rowIds": [
+      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+    ]
+  }'
+```
+
+```json Response
+{
+  "deleted": 2,
+  "requested": 2
+}
+```
 
 <Note>
   This page covers the v2 read endpoint. The deprecated v1 `GET /tables/{tableId}/rows`

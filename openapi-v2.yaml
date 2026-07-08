@@ -1044,6 +1044,51 @@ paths:
               schema: { type: string }
         '400': { description: 'INVALID_FILTERS / INVALID_SORT / UNKNOWN_COLUMN / VALIDATION_ERROR.' }
         '404': { description: TABLE_NOT_FOUND. }
+    delete:
+      tags: [Workspace]
+      summary: Bulk soft-delete rows by id
+      description: |
+        Soft-deletes the given rows (up to **100** per call). Each row and its
+        cells / cell_runs / active sequences cascade off. Ids that don't belong
+        to this table/org, or are already deleted, are skipped — so `deleted`
+        may be less than `requested` (an idempotent re-delete returns
+        `deleted: 0`). Deleted rows are recoverable via the app's restore flow.
+      operationId: deleteRows
+      x-mint:
+        href: /agents/reference/delete-rows
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rowIds]
+              properties:
+                rowIds:
+                  type: array
+                  items: { type: string, format: uuid }
+                  minItems: 1
+                  maxItems: 100
+      responses:
+        '200':
+          description: Delete receipt.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, requested]
+                properties:
+                  deleted:
+                    type: integer
+                    description: Rows actually soft-deleted (live rows in this table + org that matched).
+                  requested:
+                    type: integer
+                    description: Row ids submitted (raw count, before de-duplication).
+              example:
+                deleted: 2
+                requested: 2
+        '400': { description: VALIDATION_ERROR (rowIds empty, non-UUID, or over 100). }
+        '404': { description: TABLE_NOT_FOUND. }
   /tables/{tableId}/rows/upsert:
     parameters:
       - $ref: '#/components/parameters/TableId'
