@@ -3617,8 +3617,9 @@ components:
           minimum: 0
           description: |
             Number of cells that hit a settled failure. Includes
-            `errored`, `out_of_credits`, `subscription_required`, and
-            `connection_required`. The user-driven `stopped` state is
+            `errored`, `out_of_credits`, `budget_exceeded`,
+            `subscription_required`, and `connection_required`. The
+            user-driven `stopped` state is
             intentionally excluded — it's a cancellation, not a
             failure to surface.
     CreditsLifetime:
