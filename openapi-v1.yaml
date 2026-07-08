@@ -4,8 +4,8 @@ info:
   version: "1.0"
   description: |
     > **Deprecated.** v1 is superseded by the canonical
-    > [v2 API](./openapi-v2) (four segments: Agents, Workspace, Sequences,
-    > Account). v1 remains fully functional with **no removal date in this
+    > [v2 API](./openapi-v2) (five segments: Projects, Agents, Workspace,
+    > Outreach, Account). v1 remains fully functional with **no removal date in this
     > release** — but new integrations should target v2. See the
     > [v1 → v2 migration guide](./api-v1-to-v2-migration): `GET /tables` →
     > `GET /api/v2/tables`, `GET /tables/:id/rows` →
