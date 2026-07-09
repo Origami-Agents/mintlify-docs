@@ -3890,36 +3890,55 @@ components:
                         message: Required
     InsufficientCredits:
       description: |
-        Org out of credits at admission time. `402` can also be
-        `SUBSCRIPTION_REQUIRED` when the plan does not include API
-        access; both shapes use the same `{ error, code }` envelope.
+        Org out of credits or budget exhausted at admission time. Three distinct
+        `code` values share this 402 slot:
+        - `INSUFFICIENT_CREDITS` — wallet balance below the run floor; top up to unblock.
+        - `BUDGET_EXCEEDED` — a hard credit budget has no headroom; adjust or remove
+          the budget. The org wallet may still have credits — topping up will not
+          unblock this response.
+        - `SUBSCRIPTION_REQUIRED` — the plan does not include API access.
+        Only `error` and `code` are guaranteed on all three shapes.
       content:
         application/json:
           schema:
             type: object
-            # Two distinct 402 shapes share this slot: INSUFFICIENT_CREDITS
-            # carries the credit fields below; SUBSCRIPTION_REQUIRED (plan
-            # lacks API access) carries only { error, code, hint }. Only
-            # `error` + `code` are common to both, so the credit fields are
-            # optional here.
+            # Three distinct 402 shapes share this slot: INSUFFICIENT_CREDITS
+            # carries the credit fields below; BUDGET_EXCEEDED carries
+            # blockedByBudgets; SUBSCRIPTION_REQUIRED (plan lacks API access)
+            # carries only { error, code, hint }. Only `error` + `code` are
+            # common to all three, so the shape-specific fields are optional.
             required: [error, code]
             properties:
               error: { type: string }
-              code: { type: string, enum: [INSUFFICIENT_CREDITS, SUBSCRIPTION_REQUIRED] }
+              code:
+                type: string
+                enum: [INSUFFICIENT_CREDITS, BUDGET_EXCEEDED, SUBSCRIPTION_REQUIRED]
               creditsRequired: { type: integer }
               creditsAvailable: { type: integer }
               topUpUrl: { type: string }
+              blockedByBudgets:
+                type: array
+                items: { type: string }
+                description: |
+                  Present when `code` is `BUDGET_EXCEEDED`. Names of the
+                  exhausted credit budgets blocking this run.
               message: { type: string }
               hint: { type: string }
-            example:
-              error: Insufficient credits
-              code: INSUFFICIENT_CREDITS
-              creditsRequired: 5
-              creditsAvailable: 2
-              topUpUrl: https://origami.chat/settings/billing?source=api
-              message: |
-                Origami needs at least 5 credits to start any run; you have 2.
-                Top up: https://origami.chat/settings/billing?source=api
+          examples:
+            insufficient_credits:
+              value:
+                error: Insufficient credits
+                code: INSUFFICIENT_CREDITS
+                creditsRequired: 5
+                creditsAvailable: 2
+                topUpUrl: https://origami.chat/settings/billing?source=api
+                message: "Origami needs at least 5 credits to start any run; you have 2."
+            budget_exceeded:
+              value:
+                error: Budget exceeded
+                code: BUDGET_EXCEEDED
+                blockedByBudgets: ["Marketing Q3"]
+                message: "This run is blocked by the credit budget Marketing Q3 — the spending limit has been reached. Increase the budget limit, wait for it to reset, or remove it."
     AgentBusy:
       description: A run is already in flight on this agent
       content:
