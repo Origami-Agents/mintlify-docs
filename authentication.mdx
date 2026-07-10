@@ -61,7 +61,8 @@ unknown, cross-parent, or deleted project returns `404 PROJECT_NOT_FOUND`. The
 plan gate and rate limits stay keyed to the parent, and the concurrent-agent pool
 is shared across the whole parent. Credits spent inside a project draw on the
 parent's shared wallet, subject to the project's optional `monthlyCredits` budget
-cap.
+cap and its `enforcement` mode (`"hard"` blocks spend at the cap; `"soft"` tracks
+without blocking).
 
 <Info>
   Manage projects with the [Projects endpoints](/agents/reference/list-projects).

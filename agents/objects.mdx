@@ -61,7 +61,9 @@ flowchart TD
   Table --> Column[Column]
   Table --> Row[Row]
   Row --> Cell[Cell]
-  Table --> EnrichmentRun[Enrichment run]
+  Table --> TableRun[Table run]
+  TableRun --> EnrichmentRun[Enrichment run]
+  EnrichmentRun -.->|tableRunId| TableRun
   Workspace --> Campaign[Campaign]
   Campaign --> Sequence[Sequence]
   Sequence --> Step[Step]
@@ -79,8 +81,10 @@ organization and can act on the parent or any of its projects.
 <ResponseField name="Project" type="object">
   A **child org** under your parent — a customer's isolated set of workspaces
   and tables. Credits and the concurrency pool stay shared at the parent; a
-  project can carry an optional `monthlyCredits` budget cap. Manage projects
-  from the parent with [`GET /projects`](/agents/reference/list-projects),
+  project can carry an optional `monthlyCredits` budget cap and an `enforcement`
+  mode — `"hard"` blocks new spend once the cap is reached, `"soft"` only tracks.
+  Manage projects from the parent with
+  [`GET /projects`](/agents/reference/list-projects),
   [`POST /projects`](/agents/reference/create-project), and
   [`GET`](/agents/reference/get-project) /
   [`PATCH`](/agents/reference/update-project) /
@@ -177,11 +181,26 @@ for details.
   [`GET /enrichment-runs/{runId}`](/agents/reference/get-enrichment-run),
   [`GET /tables/{tableId}/enrichment-runs`](/agents/reference/list-table-enrichment-runs).
 
+  For `enrich=true` batches the object also carries a `tableRunId` — the id of
+  the parent `table_run`. Use it with
+  [`GET /tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run)
+  to read the parent's status, timestamps, and terminal child counts (the
+  durable recovery read if a `table.run.completed` webhook is missed).
+  `tableRunId` is `null` for `enrich=false` write batches and pre-migration batches.
+
   <Note>
     An enrichment run is the object formerly called a "batch". `GET /batches`
     and `GET /batches/{batchId}` remain as deprecated aliases; its `id` and
     `batchId` fields hold the same value.
   </Note>
+</ResponseField>
+
+<ResponseField name="Table run" type="object">
+  The durable parent of a table operation (e.g. an API enrichment batch). Created
+  automatically alongside each `enrich=true` upsert. Carries `source`, `status`,
+  timestamps, an optional `failureReason`, and terminal child-outcome `counts` once
+  complete. This is the recovery read if you miss a `table.run.completed` webhook.
+  Endpoint: [`GET /tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run).
 </ResponseField>
 
 <ResponseField name="Document" type="object">

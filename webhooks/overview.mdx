@@ -1,6 +1,6 @@
 ---
 title: "Webhooks overview"
-description: "Receive signed event POSTs from Origami when sequencer activity happens."
+description: "Receive signed event POSTs from Origami when sequencer or table activity happens."
 ---
 
 <Note>
@@ -9,10 +9,21 @@ description: "Receive signed event POSTs from Origami when sequencer activity ha
   change.
 </Note>
 
-When a sequencer event happens, Origami POSTs a signed JSON envelope to
+When a subscribed event happens, Origami POSTs a signed JSON envelope to
 a URL you configure in **Settings → Developers → Webhooks**.
 
-## v1 events
+## Tables events
+
+| Event | When it fires | Default in picker |
+|-------|---------------|-------------------|
+| `table.run.completed` | An `enrich=true` API enrichment batch (v1 insert or v2 upsert) reaches a terminal state — `complete`, `cancelled`, or `failed`. Payload carries `run_id`, `table_id`, `source`, terminal `status`, timestamps, optional `failure_reason`, and child-outcome `counts` (`complete`, `errored`, `cancelled`). | off |
+
+Subscribe to `table.run.completed`, the `table.*` wildcard, or `*` (everything).
+Missed delivery? Recover with
+[`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run)
+using the `run_id` from the payload (or `enrichment_run.tableRunId` from the upsert response).
+
+## Sequencer events
 
 | Event | When it fires | Default in picker |
 |-------|---------------|-------------------|
@@ -23,7 +34,7 @@ a URL you configure in **Settings → Developers → Webhooks**.
 | `webhook.test` | You clicked **Test endpoint** in the dashboard. Always delivered, regardless of subscription. | n/a |
 
 Subscribe to specific event types, the `sequence.*` wildcard, the
-`sequence.connection.*` sub-wildcard, or `*` (everything, including
+`sequence.connection.*` sub-wildcard, `table.*`, or `*` (everything, including
 future event types).
 
 ## Delivery guarantees

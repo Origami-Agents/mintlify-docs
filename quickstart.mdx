@@ -127,13 +127,13 @@ curl "https://origami.chat/api/v2/enrichment-runs/RUN_ID" \
 ```
 
 <CodeGroup>
-```json Running
+```json Processing
 {
   "object": "enrichment_run",
   "id": "f47ac10b-…",
   "tableId": "d290f1ee-…",
   "type": "upsert",
-  "status": "running",
+  "status": "processing",
   "rowCount": 2,
   "enrichments": { "total": 4, "completed": 1, "pending": 3, "failed": 0 },
   "creditsUsed": 0,
@@ -147,8 +147,9 @@ curl "https://origami.chat/api/v2/enrichment-runs/RUN_ID" \
   "object": "enrichment_run",
   "id": "f47ac10b-…",
   "tableId": "d290f1ee-…",
+  "tableRunId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "type": "upsert",
-  "status": "completed",
+  "status": "complete",
   "rowCount": 2,
   "enrichments": { "total": 4, "completed": 4, "pending": 0, "failed": 0 },
   "creditsUsed": 12,

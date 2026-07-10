@@ -37,9 +37,13 @@ Sequence outreach is the clearest example you can wire up today:
   </Step>
 </Steps>
 
-For work you can't yet subscribe to — agent runs and upsert batches — poll the API instead:
-poll [`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run) for runs and
-`GET /api/v2/batches/{batchId}` for batches.
+For work with no webhook yet — **agent runs** — poll
+[`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run) until terminal.
+For **upsert batches**, subscribe to `table.run.completed` when `enrich=true`
+(the default); the upsert response's `tableRunId` is the `run_id` in the payload.
+Otherwise poll [`GET /api/v2/enrichment-runs/{runId}`](/agents/reference/get-enrichment-run),
+or [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run) for a
+durable status read that persists beyond batch retention.
 
 ## Correlation keys
 
@@ -48,6 +52,7 @@ a push event to a pull read with no extra mapping.
 
 | Payload field | Read it with |
 |---------------|--------------|
+| `data.run_id` (on `table.run.completed`) | [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run) |
 | `outreach_target.{table_id, row_id}` | `GET /api/v2/tables/{tableId}/rows/{rowId}` |
 | `outreach_target.column_id` | The stable campaign identifier across a sequence's events. |
 | `sequence_id` | `GET /api/v2/sequences/{sequenceId}` |

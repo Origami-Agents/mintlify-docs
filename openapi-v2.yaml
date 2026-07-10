@@ -1087,7 +1087,7 @@ paths:
               example:
                 deleted: 2
                 requested: 2
-        '400': { description: VALIDATION_ERROR (rowIds empty, non-UUID, or over 100). }
+        '400': { description: 'VALIDATION_ERROR (rowIds empty, non-UUID, or over 100).' }
         '404': { description: TABLE_NOT_FOUND. }
   /tables/{tableId}/rows/upsert:
     parameters:
@@ -1370,6 +1370,33 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/EnrichmentRun' }
         '404': { description: TABLE_NOT_FOUND. }
+  /tables/{tableId}/runs/{runId}:
+    parameters:
+      - $ref: '#/components/parameters/TableId'
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+        description: The table-run id (from `enrichment_run.tableRunId` or the `table.run.completed` webhook).
+    get:
+      tags: [Workspace]
+      summary: Get table run
+      description: |
+        Durable recovery read for table-run completion: returns the parent
+        run's status, source, timestamps, optional failure reason, and terminal
+        child counts (counts are present only once the run is terminal). This is
+        the fallback for a missed `table.run.completed` webhook. Purged
+        (retention-expired) or foreign runs return `404`.
+      operationId: getTableRun
+      x-mint:
+        href: /agents/reference/get-table-run
+      responses:
+        '200':
+          description: The table-run object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableRun' }
+        '404': { description: RUN_NOT_FOUND or TABLE_NOT_FOUND. }
   /batches:
     get:
       deprecated: true
@@ -2346,11 +2373,12 @@ paths:
           $ref: '#/components/responses/ProjectNotFound'
     patch:
       tags: [Projects]
-      summary: Update a project's name / budget cap
+      summary: Update a project's name, budget cap, or enforcement mode
       description: |
         Partial update. For `monthlyCredits`, a number **sets** the cap,
         an explicit `null` **clears** it, and omitting the field leaves
-        it alone.
+        it alone. `enforcement` controls whether that cap hard-blocks spend
+        (`hard`) or only tracks it (`soft`); omitting it leaves it alone.
       operationId: updateProject
       x-mint:
         href: /agents/reference/update-project
@@ -2367,6 +2395,13 @@ paths:
                   minimum: 1
                   nullable: true
                   description: Number sets the cap, explicit null clears it, omitted leaves it alone.
+                enforcement:
+                  type: string
+                  enum: [hard, soft]
+                  description: >
+                    `hard` blocks new spend once the `monthlyCredits` cap is reached;
+                    `soft` tracks spend against the cap without blocking. Omitting the
+                    field leaves the current value unchanged.
       responses:
         '200':
           description: The updated project.
@@ -2779,6 +2814,35 @@ components:
             Typed cells keyed by column slug. Each cell is polymorphic:
             `scalar` (input columns), `value` (+ run metadata where present),
             or `sequence` (a reference to the drafted sequence).
+    TableRun:
+      type: object
+      required: [object, id, tableId, source, status, createdAt]
+      description: |
+        The durable parent of a table operation (e.g. an API enrichment batch).
+        Reconciled once its child work finishes, then fanned out via the
+        `table.run.completed` webhook. This object is the durable status read.
+      properties:
+        object: { type: string, const: table_run }
+        id: { type: string, format: uuid }
+        tableId: { type: string, format: uuid }
+        source:
+          type: string
+          enum: [agent, api, ui, lead_source, backfill]
+        status:
+          type: string
+          enum: [building, processing, cancelling, failing, complete, cancelled, failed]
+        createdAt: { type: string, format: date-time }
+        activatedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        failureReason: { type: string, nullable: true }
+        counts:
+          nullable: true
+          description: Terminal child-outcome counts; null until the run is terminal.
+          type: object
+          properties:
+            complete: { type: integer }
+            errored: { type: integer }
+            cancelled: { type: integer }
     EnrichmentRun:
       type: object
       required: [object, id, batchId, tableId, type, status, createdAt, completedAt]
@@ -2800,6 +2864,15 @@ components:
         status: { type: string }
         createdAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
+        tableRunId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Linked table-run parent (`enrich=true` batches only). Lets consumers
+            poll `GET /tables/{tableId}/runs/{runId}` or await the
+            `table.run.completed` webhook without a version bump.
+            `null` for `enrich=false` writes and pre-migration batches.
     EnrichmentRunDetail:
       allOf:
         - $ref: '#/components/schemas/EnrichmentRun'
@@ -3030,7 +3103,7 @@ components:
         status: { type: string, enum: [draft, active, paused] }
     Project:
       type: object
-      required: [object, id, name, monthlyCredits, usage, createdAt]
+      required: [object, id, name, monthlyCredits, enforcement, usage, createdAt]
       description: |
         A project is a **child org** under the parent (agency) org — a
         customer's own isolated set of workspaces/tables while credits
@@ -3044,6 +3117,14 @@ components:
           type: number
           nullable: true
           description: Monthly budget cap in credits, or `null` when uncapped.
+        enforcement:
+          type: string
+          enum: [hard, soft]
+          nullable: true
+          description: >
+            How the `monthlyCredits` cap is enforced - `hard` blocks new spend
+            once the cap is reached, `soft` only tracks. `null` when the project
+            is uncapped (nothing to enforce).
         usage:
           type: object
           required: [spent, reserved]
