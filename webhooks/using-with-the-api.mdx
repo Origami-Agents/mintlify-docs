@@ -37,12 +37,14 @@ Sequence outreach is the clearest example you can wire up today:
   </Step>
 </Steps>
 
-For work you can't yet subscribe to — agent runs and upsert batches — poll the
-API instead: poll [`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run) for runs and
-[`GET /api/v2/enrichment-runs/{runId}`](/agents/reference/get-enrichment-run) for enrichment batches.
-For `enrich=true` upserts you can also poll the parent table run at
-[`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run) using the
-`tableRunId` returned on the upsert receipt.
+For `enrich=true` upsert batches, subscribe to `table.run.completed` — the webhook fires when
+the parent table run reaches a terminal state (`complete`, `cancelled`, or `failed`). Missed
+delivery? Recover by polling [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run)
+using the `tableRunId` from the upsert receipt, or poll the enrichment run at
+[`GET /api/v2/enrichment-runs/{runId}`](/agents/reference/get-enrichment-run).
+
+For agent runs (no webhook yet), poll [`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run)
+until `status` is terminal.
 
 ## Correlation keys
 
