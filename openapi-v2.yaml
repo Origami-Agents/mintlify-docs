@@ -2915,7 +2915,7 @@ components:
                 skipped: { type: integer }
     UpsertReceipt:
       type: object
-      required: [object, id, batchId, counts]
+      required: [object, id, batchId, tableRunId, counts]
       description: |
         Response of `POST /tables/{tableId}/rows/upsert` and
         `.../rows/upsert-file` — an `enrichment_run` reference the caller
@@ -2927,6 +2927,15 @@ components:
           type: string
           format: uuid
           description: Legacy alias of `id`.
+        tableRunId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Linked table-run parent (`enrich=true` batches only). Lets consumers
+            poll `GET /tables/{tableId}/runs/{runId}` or await the
+            `table.run.completed` webhook without a version bump.
+            `null` for `enrich=false` writes and pre-migration batches.
         counts:
           type: object
           required: [inserted, updated, skipped]

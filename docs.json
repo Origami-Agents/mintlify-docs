@@ -101,7 +101,8 @@
             "pages": [
               "GET /enrichment-runs",
               "GET /enrichment-runs/{runId}",
-              "GET /tables/{tableId}/enrichment-runs"
+              "GET /tables/{tableId}/enrichment-runs",
+              "GET /tables/{tableId}/runs/{runId}"
             ]
           },
           {

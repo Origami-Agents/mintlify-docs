@@ -102,9 +102,15 @@ you poll next.
   "object": "enrichment_run",
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "batchId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "tableRunId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "counts": { "inserted": 2, "updated": 0, "skipped": 0 }
 }
 ```
+
+`tableRunId` points to the parent table run for `enrich=true` batches (the default).
+Poll its status or await the `table.run.completed` webhook via
+[`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run).
+It is `null` for `enrich=false` writes.
 
 <Tip>
   Set `"enrich": false` to upsert without triggering enrichment. To also
@@ -138,7 +144,8 @@ curl "https://origami.chat/api/v2/enrichment-runs/RUN_ID" \
   "enrichments": { "total": 4, "completed": 1, "pending": 3, "failed": 0 },
   "creditsUsed": 0,
   "createdAt": "2025-07-01T14:30:00Z",
-  "completedAt": null
+  "completedAt": null,
+  "tableRunId": "a1b2c3d4-5678-90ab-cdef-1234567890ab"
 }
 ```
 
@@ -147,7 +154,6 @@ curl "https://origami.chat/api/v2/enrichment-runs/RUN_ID" \
   "object": "enrichment_run",
   "id": "f47ac10b-…",
   "tableId": "d290f1ee-…",
-  "tableRunId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "type": "upsert",
   "status": "complete",
   "rowCount": 2,
@@ -155,7 +161,8 @@ curl "https://origami.chat/api/v2/enrichment-runs/RUN_ID" \
   "creditsUsed": 12,
   "outcomeCounts": { "inserted": 2, "updated": 0, "skipped": 0 },
   "createdAt": "2025-07-01T14:30:00Z",
-  "completedAt": "2025-07-01T14:31:15Z"
+  "completedAt": "2025-07-01T14:31:15Z",
+  "tableRunId": "a1b2c3d4-5678-90ab-cdef-1234567890ab"
 }
 ```
 </CodeGroup>
