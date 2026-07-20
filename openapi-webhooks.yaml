@@ -3,9 +3,9 @@ info:
   title: Origami Webhooks
   version: "1.0"
   description: |
-    Outbound events Origami POSTs to your servers when sequencer activity
-    happens. Verify the `webhook-signature` header on every request
-    before acting on the payload — see the signatures guide. Receivers
+    Outbound events Origami POSTs to your servers when sequencer or table
+    activity happens. Verify the `webhook-signature` header on every request
+    before acting on the payload; see the signatures guide. Receivers
     MUST dedupe on the `webhook-id` header. Configure endpoints in
     **Settings → Developers → Webhooks**.
 
@@ -83,7 +83,7 @@ webhooks:
         Origami POSTs this event when a sequencer LinkedIn invite is
         sent. Shape mirrors `Message sent`: `channel` is always
         `"linkedin"` and `data.message.body` carries the optional
-        connection note (a LinkedIn premium feature — empty string
+        connection note (a LinkedIn premium feature; empty string
         when no note was attached).
 
         **Default in the picker:** off. The event duplicates state
@@ -124,6 +124,38 @@ webhooks:
         "200":
           description: Receiver acknowledged.
 
+  table.run.completed:
+    post:
+      x-mint:
+        href: /webhooks/events/table-run-completed
+      operationId: tableRunCompleted
+      summary: Run completed
+      description: |
+        Origami POSTs this event when a table operation (e.g. an API
+        enrichment batch) reaches a terminal state: complete, cancelled, or
+        failed.
+
+        `data.counts` carries aggregate terminal child-outcome counts
+        (`complete`, `errored`, `cancelled`), never child-id arrays, so
+        payload size is constant regardless of how wide the run was.
+        Correlate via `data.run_id` and read the durable status at
+        `GET /api/v2/tables/:tableId/runs/:runId`.
+
+        v1 emits this event only for API enrichment batches (`enrich=true`
+        on a v1 row insert or v2 upsert); agent-, UI-, and
+        lead-source-produced table runs are deferred.
+
+        **Default in the picker:** off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TableRunCompletedEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
   webhook.test:
     post:
       x-mint:
@@ -132,7 +164,7 @@ webhooks:
       summary: Test event
       description: |
         Origami POSTs this event when you click **Test endpoint** in the
-        dashboard. Always delivered regardless of subscription — it's a
+        dashboard. Always delivered regardless of subscription; it's a
         wire-connectivity check, not a business signal.
 
         Receivers can ignore test traffic in production analytics by
@@ -153,7 +185,7 @@ components:
       type: string
       format: uuid
       description: |
-        Equal to the `webhook-id` HTTP header. Stable across retries —
+        Equal to the `webhook-id` HTTP header. Stable across retries;
         use for receiver-side deduplication.
 
     EventTimestamp:
@@ -161,7 +193,7 @@ components:
       format: date-time
       description: |
         Event time (when the business action happened), set once at
-        publish and replayed on retries. NOT the dispatch time — that
+        publish and replayed on retries. NOT the dispatch time, which
         lives in the `webhook-timestamp` HTTP header and is recomputed
         per send.
 
@@ -202,7 +234,7 @@ components:
     Sender:
       type: object
       description: |
-        The sending identity inside your org — which mailbox or
+        The sending identity inside your org: which mailbox or
         LinkedIn account this event is associated with.
       properties:
         email:
@@ -323,7 +355,7 @@ components:
         sequence_id:
           type: string
           format: uuid
-          description: Primary matched sequence — what most receivers attribute the reply to.
+          description: "Primary matched sequence: what most receivers attribute the reply to."
         newly_stopped:
           type: boolean
           description: True if `sequence_id` transitioned to stopped on this reply.
@@ -403,6 +435,65 @@ components:
           type: string
       required: [triggered_by, triggered_at, message]
 
+    TableRunCompletedData:
+      type: object
+      description: |
+        Terminal counts for a table operation. Aggregate counts only, never
+        child-id arrays, so payload size is constant regardless of run width.
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        table_id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          description: "Where the run originated: api | agent | ui | lead_source | backfill."
+        status:
+          type: string
+          enum: [complete, cancelled, failed]
+        failure_reason:
+          type: string
+          nullable: true
+          description: Set only when `status` is `failed`; a short orchestration reason.
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        counts:
+          type: object
+          properties:
+            complete:
+              type: integer
+              minimum: 0
+            errored:
+              type: integer
+              minimum: 0
+            cancelled:
+              type: integer
+              minimum: 0
+          required: [complete, errored, cancelled]
+      required:
+        - run_id
+        - table_id
+        - workspace_id
+        - organization_id
+        - source
+        - status
+        - failure_reason
+        - created_at
+        - completed_at
+        - counts
+
     # Per-event envelopes. Each pins the `type` literal so receivers can
     # narrow on `type` and get the matching `data` shape.
 
@@ -456,6 +547,19 @@ components:
           $ref: "#/components/schemas/EventTimestamp"
         data:
           $ref: "#/components/schemas/ConnectionAcceptedData"
+      required: [type, id, timestamp, data]
+
+    TableRunCompletedEnvelope:
+      type: object
+      properties:
+        type:
+          const: table.run.completed
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/TableRunCompletedData"
       required: [type, id, timestamp, data]
 
     WebhookTestEnvelope:

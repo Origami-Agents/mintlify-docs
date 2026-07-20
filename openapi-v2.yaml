@@ -4,7 +4,7 @@ info:
   version: "2.0"
   description: |
     The Origami **v2 API** is the single canonical public surface,
-    organized into five segments — **Projects** (tenancy), **Agents**,
+    organized into five segments: **Projects** (tenancy), **Agents**,
     **Workspace**, **Outreach** (campaigns, sequences, steps), and
     **Account**. Drive AI workers from a prompt, read and write table
     data (rows, cells, upsert, enrichment runs), manage documents and
@@ -17,7 +17,20 @@ info:
     returns the one list envelope
     `{ "object": "list", "items": [...], "nextCursor": string|null, "url": string }`.
 
-    **v1 is deprecated** (still fully functional — no removal date in
+    **Workspaces are deprecated** (still fully functional, no removal
+    date in this release). The agent boundary is now the **chat
+    session**: an agent IS a session, and its scope is the tables /
+    campaigns *linked* to that session rather than "everything in a
+    workspace". For backwards compatibility every `workspaceId`
+    parameter, field, and path segment stays in place and now accepts
+    **either** a legacy workspace id **or** a chat-session id (the
+    `agent.workspaceId` / `workspace.id` values v2 returns for new
+    agents are session ids). `POST /workspaces` mints a session
+    container; new agents no longer auto-create workspaces. New
+    integrations should treat `workspaceId` as an opaque container id
+    and prefer agent/table/campaign ids directly.
+
+    **v1 is deprecated** (still fully functional, no removal date in
     this release). New integrations should target v2 only. See the
     [v1 → v2 migration guide](./api-v1-to-v2-migration) for the route
     map; in short:
@@ -33,13 +46,13 @@ info:
     Errors use the canonical envelope `{ error, code, details?, handoff? }`;
     any 4xx the user can fix in-app carries a forwardable `handoff` link.
 
-    ## Tenancy — parent-wide keys & the `x-origami-project` header
+    ## Tenancy: parent-wide keys & the `x-origami-project` header
 
     Every API key is **parent-wide**: bound to the parent (agency)
     organization and able to act on the parent and any of its
     **projects** (child orgs). Send the
     **`x-origami-project: <projectId>`** header on any v2 request to
-    scope it to that project — all org-scoped resources (workspaces,
+    scope it to that project; all org-scoped resources (workspaces,
     tables, agents, outreach) then operate inside the project. Omit the
     header to act on the parent. Two exceptions: `/projects/*` manages
     the projects themselves from the parent (the header is ignored
@@ -53,7 +66,7 @@ info:
     Credits spent inside a project draw on the parent's shared wallet,
     subject to the project's optional `monthlyCredits` budget cap.
 
-    ## Transport — async by default
+    ## Transport: async by default
 
     `POST /agents` and `POST /agents/:id/runs` respond `202 Accepted`
     with the initial run object (`status: "running"`) as soon as the
@@ -64,22 +77,22 @@ info:
     Every endpoint returns plain `application/json`. There is no
     NDJSON, no heartbeats, no `tail -1`, no pre-stream vs in-stream
     error branches. Closing the HTTP socket has no effect on the run
-    — there is no `abortOnDisconnect` knob.
+    there is no `abortOnDisconnect` knob.
 
-    SDKs hide the polling — `await origami.agents.create({ prompt })`
+    SDKs hide the polling: `await origami.agents.create({ prompt })`
     returns the final terminal `Run` object. Direct REST consumers
     poll `GET /agents/:id/runs/:runId` and honor the `Retry-After`
     header it returns while the run is still `running` (currently
-    `15` seconds). The header is omitted on terminal responses —
+    `15` seconds). The header is omitted on terminal responses;
     that absence is the signal to stop polling. Runs typically take
-    1–5 minutes; polling faster than the hint does not make a run
+    1-5 minutes; polling faster than the hint does not make a run
     finish sooner.
 
-    ## Pagination — cursor only
+    ## Pagination: cursor only
 
-    Every list endpoint takes the same parameter pair — `limit`
+    Every list endpoint takes the same parameter pair, `limit`
     (default 50, max 100; row queries allow up to 200) and `cursor`
-    (opaque; pass back the previous page's `nextCursor`) — and returns
+    (opaque; pass back the previous page's `nextCursor`), and returns
     the one envelope `{ object: "list", items, nextCursor, url }`.
     `nextCursor: null` marks the last page. There is no
     `page`/`pageSize` and no `offset`. Per-endpoint filters (e.g.
@@ -87,12 +100,12 @@ info:
 
     ## Idempotency
 
-    Any `POST` may send an **`Idempotency-Key`** header (1–255
+    Any `POST` may send an **`Idempotency-Key`** header (1-255
     printable ASCII chars). The first response for a key is recorded
     and replayed verbatim for retries with the same key + request for
     24 hours; replayed responses carry the `Idempotency-Replay: true`
-    header. Reusing a key with a *different* method/path/body — or
-    racing a still-in-flight original — is `409 IDEMPOTENCY_ERROR`.
+    header. Reusing a key with a *different* method/path/body, or
+    racing a still-in-flight original, is `409 IDEMPOTENCY_ERROR`.
     Row upserts additionally dedup on the body `batchId`
     (domain-level idempotency, independent of transport retries).
 
@@ -100,7 +113,7 @@ info:
 
     Same layers as v1: **per IP** (300 req/min) and **per organization**
     (100 req/min). The real scarce resource for agent runs is the
-    per-org concurrent-agent slot — see `CONCURRENT_LIMIT_EXCEEDED`.
+    per-org concurrent-agent slot; see `CONCURRENT_LIMIT_EXCEEDED`.
 
     | Scope | Limit |
     |-------|-------|
@@ -115,7 +128,7 @@ info:
     ## Plan-tier policy
 
     Agent-loop knobs (`maxSteps`, `timeoutSeconds`) are **not** request
-    parameters — they're internal config gated by the plan tier. The
+    parameters; they're internal config gated by the plan tier. The
     chat agent's intrinsic 20-minute `AGENT_TIMEOUT_MS` is the wall-
     clock ceiling.
 
@@ -137,15 +150,15 @@ info:
 
     Non-`completed` terminal *run* states (`timed_out`, `errored`,
     `cancelled`, `needs_input`, `step_cap_hit`) are surfaced on the
-    `Run` object's single `status` field — not as HTTP error codes.
+    `Run` object's single `status` field, not as HTTP error codes.
     Callers branch on the run object.
 
     Notable codes beyond the per-endpoint ones: `IDEMPOTENCY_ERROR`
-    (409 — `Idempotency-Key` reused with a different request, or the
-    original is still in flight), `TOO_MANY_ROWS` (413 — a CSV upsert
-    exceeds the 100-row per-request cap), `CAMPAIGN_NOT_FOUND` (404 —
-    missing or cross-org campaign id), `SEQUENCE_NOT_FOUND` (404 —
-    missing or cross-org sequence id), and `PROJECT_NOT_FOUND` (404 —
+    (409: `Idempotency-Key` reused with a different request, or the
+    original is still in flight), `TOO_MANY_ROWS` (413: a CSV upsert
+    exceeds the 100-row per-request cap), `CAMPAIGN_NOT_FOUND` (404:
+    missing or cross-org campaign id), `SEQUENCE_NOT_FOUND` (404:
+    missing or cross-org sequence id), and `PROJECT_NOT_FOUND` (404:
     the `x-origami-project` header names an unknown, cross-parent, or
     deleted project).
 
@@ -166,7 +179,7 @@ security:
 
 tags:
   - name: Projects
-    description: Projects (child orgs) under the parent org — list, get, create, update, delete. Managed from the parent; the `x-origami-project` header is ignored on these paths.
+    description: 'Projects (child orgs) under the parent org: list, get, create, update, delete. Managed from the parent; the `x-origami-project` header is ignored on these paths.'
   - name: Agents
     description: Create, list, and archive AI workers (a.k.a. agents).
   - name: Runs
@@ -176,13 +189,13 @@ tags:
   - name: Workspace
     description: Workspaces, tables, columns, rows, cells, enrichment runs, and documents.
   - name: Campaigns
-    description: First-class outreach campaigns — list, get, read people + stats, create + edit (agentic), launch/pause/resume, delete.
+    description: 'First-class outreach campaigns: list, get, read people + stats, create + edit (agentic), launch/pause/resume, delete.'
   - name: Sequences
     description: Read per-recipient sequences (with steps inline), stop and delete them. Content edits go through the agentic campaign edit.
   - name: Scheduled agents
-    description: Recurring agents (cron) — CRUD, enable/disable, trigger, run history.
+    description: 'Recurring agents (cron): CRUD, enable/disable, trigger, run history.'
   - name: Account
-    description: Org account state — plan, capabilities, credit balance.
+    description: 'Org account state: plan, capabilities, credit balance.'
 
 paths:
   /agents:
@@ -192,13 +205,20 @@ paths:
       tags: [Agents]
       summary: Create an agent and admit its first run
       description: |
-        Creates a new agent (and, if `workspaceId` is null and no
-        `focusTableIds` are passed, an auto-created workspace), inserts
-        a synthetic user message carrying the prompt, claims the
-        per-org concurrent slot, and spawns the agent work in the
-        background. Responds `202 Accepted` with the initial run
-        object (`status: "running"`). Poll
-        `GET /agents/{id}/runs/{runId}` until `status !== "running"`.
+        Creates a new agent (a chat session), inserts a synthetic user
+        message carrying the prompt, claims the per-org concurrent
+        slot, and spawns the agent work in the background. Responds
+        `202 Accepted` with the initial run object
+        (`status: "running"`). Poll `GET /agents/{id}/runs/{runId}`
+        until `status !== "running"`.
+
+        Workspaces are deprecated: no workspace is auto-created any
+        more. The returned `workspace` object describes the agent's
+        **session container** (its `id` is a chat-session id every
+        `workspaceId` parameter accepts). Passing a chat-session id as
+        `workspaceId` creates the agent "in" that container - it copies
+        the container's table/campaign links and inherits its uploaded
+        documents; a legacy workspace id keeps the old semantics.
       operationId: createAgentAndRun
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -229,7 +249,7 @@ paths:
                       createdAt: { type: string, format: date-time }
                       createdByApi:
                         type: boolean
-                        description: True when the server auto-created this workspace for the agent. False when the caller supplied `workspaceId`.
+                        description: True for session containers (the API-native boundary). False only when the caller supplied a legacy workspace id.
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -237,7 +257,11 @@ paths:
         '402':
           $ref: '#/components/responses/InsufficientCredits'
         '403':
-          description: Workspace limit reached while auto-creating an API workspace.
+          description: |
+            Legacy error, no longer returned: `WORKSPACE_LIMIT_REACHED`
+            applied to workspace auto-creation, which is retired (agents
+            are workspace-less session containers, uncapped). Documented
+            for older client SDKs that still handle it.
           content:
             application/json:
               schema:
@@ -299,11 +323,13 @@ paths:
       tags: [Agents]
       summary: Archive an agent (soft-delete)
       description: |
-        Soft-deletes the agent. **If the agent's auto-created workspace
-        has no other active agents**, the workspace is also
-        soft-deleted in the same transaction. Hand-supplied workspaces
-        (those passed in `workspaceId` on create) are never
-        auto-deleted.
+        Soft-deletes the agent (its chat session). The deprecated
+        `workspace` node reports the agent's container: for a
+        workspace-less agent whose container is its own session, it is
+        deleted with the agent (`deletedAt` set); a session container
+        the agent was created "in", a hand-supplied legacy workspace,
+        and any legacy auto-created workspace that still has other
+        active agents are never auto-deleted.
       operationId: archiveAgent
       x-mint:
         href: /agents/reference/archive-agent
@@ -354,7 +380,7 @@ paths:
         Admits a new run on an existing agent. Same agent, same
         workspace, same conversation context. Responds `202 Accepted`
         with the initial run object; agent work runs in the
-        background. Use this to answer a `needs_input` question — the
+        background. Use this to answer a `needs_input` question; the
         agent picks up from the prior conversation.
       operationId: sendRun
       parameters:
@@ -422,7 +448,7 @@ paths:
       description: |
         Returns the run object. Works while the run is still running
         (`status: "running"` with partial `actions[]`) and after it
-        terminates. This is the primary read path — every call after
+        terminates. This is the primary read path; every call after
         `POST /agents` polls this endpoint until `status !== "running"`.
       operationId: getRun
       parameters:
@@ -430,9 +456,9 @@ paths:
           name: include
           description: |
             CSV-style list of opt-in projections. Recognized tokens:
-              - `stats` — embed table economics on every
+              - `stats`: embed table economics on every
                 `response.tables[]` entry (per-table + per-column).
-              - `transcript` — return the full public transcript on
+              - `transcript`: return the full public transcript on
                 `response.transcript`.
             Combine: `?include=stats,transcript`. Unknown tokens are
             ignored.
@@ -447,7 +473,7 @@ paths:
               schema: { type: integer }
               description: |
                 Poll-pacing hint in seconds, present ONLY while the run
-                is non-terminal (`status: "running"`) — currently `15`.
+                is non-terminal (`status: "running"`), currently `15`.
                 Honor it as the canonical poll cadence. Omitted on
                 terminal responses; that absence is the signal to stop
                 polling.
@@ -470,15 +496,16 @@ paths:
         a question), so callers that need "every table this agent has
         access to" use this endpoint instead.
 
-        Each entry is a full TableObject — same shape as
+        Each entry is a full TableObject: same shape as
         `GET /api/v2/tables/{id}` and the same shape embedded under
         `Run.response.tables[]`. Pass `?include=stats` to attach the
         economics block (per-table + per-column).
 
-        Scoped to the agent's own workspace; a caller cannot probe
-        arbitrary workspaces through this path. Returned in the
-        canonical list envelope with `nextCursor` always `null` — an
-        agent's workspace is rarely more than a handful of tables, so
+        Scoped to the agent's own reach - its chat-linked tables plus
+        its legacy workspace's tables when it has one; a caller cannot
+        probe arbitrary containers through this path. Returned in the
+        canonical list envelope with `nextCursor` always `null`; an
+        agent's scope is rarely more than a handful of tables, so
         the endpoint does not paginate.
       operationId: listAgentTables
       x-mint:
@@ -494,7 +521,7 @@ paths:
             example: stats
       responses:
         '200':
-          description: Tables in the agent's workspace (list envelope + `workspaceId`).
+          description: Tables the agent can address (list envelope + the deprecated `workspaceId` container id).
           content:
             application/json:
               schema:
@@ -517,22 +544,22 @@ paths:
       x-mint:
         href: /agents/reference/get-table
       tags: [Tables]
-      summary: Get a table — name, leadCount, columns, credits, optional economics
+      summary: 'Get a table: name, leadCount, columns, credits, optional economics'
       description: |
         The canonical "what's in this table and what did it cost?"
         surface in v2. Same shape as the entries in
         `Run.response.tables[]` and `GET /agents/{id}/tables`.
 
-        Default shape is lite — `leadCount`, `columns[]` with
+        Default shape is lite: `leadCount`, `columns[]` with
         per-column `credits.lifetimeUsed`, table-level
         `credits.lifetimeUsed` (sum of the column breakdown). Pass
-        `?include=stats` to attach the economics block — the same
+        `?include=stats` to attach the economics block, the same
         numbers the UI shows at the top of the table
         (creditsPerLead, qualification breakdown, funnel, lead
         sources, ...).
 
         `credits.lifetimeUsed` accumulates across every agent run
-        that ever populated cells on this table — it is the unit a
+        that ever populated cells on this table; it is the unit a
         human thinks in when they ask how much a list cost. It does
         NOT include still-active cell-run reservations; wait for the
         relevant run to terminate before reading the final number.
@@ -585,7 +612,7 @@ paths:
 
         Idempotent: returns `200` whether the agent has an active
         run, is already cancelling, or has no in-flight run at all.
-        The response body always carries the latest run object — the
+        The response body always carries the latest run object: the
         just-cancelled one if there was one, otherwise the agent's
         most recent terminal run.
       operationId: cancelActiveRun
@@ -614,6 +641,12 @@ paths:
     get:
       tags: [Workspace]
       summary: List workspaces (cursor-paginated; ?search=)
+      deprecated: true
+      description: |
+        Deprecated surface (workspaces are retired as the container
+        boundary). Lists every legacy workspace **plus** the
+        API-created session containers that replaced auto-created
+        workspaces, rendered as the same `Workspace` object.
       operationId: listWorkspaces
       x-mint:
         href: /agents/reference/list-workspaces
@@ -641,6 +674,14 @@ paths:
     post:
       tags: [Workspace]
       summary: Bootstrap a workspace (upload-first flows)
+      deprecated: true
+      description: |
+        Deprecated surface: creates a **session container** (a
+        workspace-less chat session), returned shaped as a `Workspace`
+        object. The id is a chat-session id; upload documents to it and
+        pass it as `workspaceId` on `POST /agents` to run agents "in"
+        it. No plan cap applies (sessions are uncapped), so
+        `WORKSPACE_LIMIT_REACHED` is no longer returned.
       operationId: createWorkspace
       x-mint:
         href: /agents/reference/create-workspace
@@ -659,13 +700,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Workspace' }
-        '403': { description: WORKSPACE_LIMIT_REACHED (carries an upgrade-plan handoff). }
+        '403': { description: 'Legacy: WORKSPACE_LIMIT_REACHED is no longer returned (session containers are uncapped).' }
   /workspaces/{workspaceId}:
     parameters:
       - $ref: '#/components/parameters/WorkspaceId'
     get:
       tags: [Workspace]
       summary: Fetch a workspace
+      deprecated: true
       operationId: getWorkspace
       x-mint:
         href: /agents/reference/get-workspace
@@ -679,10 +721,15 @@ paths:
     delete:
       tags: [Workspace]
       summary: Delete a workspace (two-step; ?confirm=true)
+      deprecated: true
       description: |
         Permanently deletes a workspace and its entire entity tree (tables,
-        rows, cells, sequences, chat history, documents). Follows the v2
-        deletes convention — deliberately **two-step** so it can't fire on a
+        rows, cells, sequences, chat history, documents). For a **session
+        container** the cascade covers the session, agents created in it,
+        and its *exclusively-linked* workspace-less tables; tables also
+        linked to other chats survive, and in-app chat sessions are
+        rejected with 403 `WORKSPACE_NOT_DELETABLE`. Follows the v2
+        deletes convention, deliberately **two-step** so it can't fire on a
         single ambiguous instruction:
 
         1. Call **without** `?confirm=true` → **no deletion**. Returns HTTP
@@ -748,8 +795,8 @@ paths:
                   default: false
                   description: Must be true to actually delete. Omit/false to get the confirmation preview.
       responses:
-        '200': { description: '{ workspaceId, name, deleted: true } — workspace deleted.' }
-        '409': { description: 'CONFIRMATION_REQUIRED — details carry name + willDelete preview; retry with { confirm: true }.' }
+        '200': { description: '{ workspaceId, name, deleted: true }: workspace deleted.' }
+        '409': { description: 'CONFIRMATION_REQUIRED: details carry name + willDelete preview; retry with { confirm: true }.' }
         '404': { description: WORKSPACE_NOT_FOUND. }
   /workspaces/{workspaceId}/documents:
     parameters:
@@ -782,14 +829,14 @@ paths:
       tags: [Workspace]
       summary: Upload files into a workspace (the single ingest verb)
       description: |
-        The one ingest path for every file type — base64 file bytes inside
+        The one ingest path for every file type: base64 file bytes inside
         JSON (no multipart). CSVs become new tables (`mode: "table"`, the
         default for `.csv`), append into an existing table (`mode: "append"`
         + `tableId`), or store as documents (`mode: "document"`); any other
         extension is stored as a document. Preflight validation is
         all-or-nothing: the whole request is rejected (count cap, per-file
         mode/extension/append-target) before any file is ingested. Per-file
-        ingestion can still fail after preflight — the response is `201` when
+        ingestion can still fail after preflight; the response is `201` when
         at least one file landed and `422 UPLOAD_FAILED` when every file
         errored. Replaces the deprecated
         `POST /workspaces/{workspaceId}/uploads` spelling (same contract).
@@ -807,8 +854,8 @@ paths:
         '201': { description: 'Per-file ingest results ({ results: [...] }); individual entries may be kind: "error".' }
         '400': { description: 'VALIDATION_ERROR / INVALID_UPLOAD_MODE.' }
         '404': { description: 'WORKSPACE_NOT_FOUND / TABLE_NOT_FOUND (append target).' }
-        '413': { description: TOO_MANY_FILES — over the per-request file cap. }
-        '422': { description: UPLOAD_FAILED — every file errored; details carry the per-file results. }
+        '413': { description: 'TOO_MANY_FILES: over the per-request file cap.' }
+        '422': { description: 'UPLOAD_FAILED: every file errored; details carry the per-file results.' }
   /workspaces/{workspaceId}/uploads:
     parameters:
       - $ref: '#/components/parameters/WorkspaceId'
@@ -817,7 +864,7 @@ paths:
       tags: [Workspace]
       summary: 'Legacy alias: upload files (use POST /workspaces/{workspaceId}/documents)'
       description: |
-        Deprecated alias for `POST /workspaces/{workspaceId}/documents` —
+        Deprecated alias for `POST /workspaces/{workspaceId}/documents`;
         identical body and responses.
       operationId: uploadWorkspaceFilesLegacy
       x-mint:
@@ -854,7 +901,7 @@ paths:
       tags: [Workspace]
       summary: Rename a document
       description: |
-        DB-only rename — re-slugs the basename from `name` while preserving
+        DB-only rename; re-slugs the basename from `name` while preserving
         the directory prefix and extension; the document id is stable. A
         collision with another live document at the derived path →
         `409 DOCUMENT_PATH_TAKEN`.
@@ -897,7 +944,7 @@ paths:
       summary: 'Legacy alias: rename a document (use PATCH .../documents/{documentId})'
       description: |
         Deprecated alias for
-        `PATCH /workspaces/{workspaceId}/documents/{documentId}` — identical
+        `PATCH /workspaces/{workspaceId}/documents/{documentId}`; identical
         body and responses.
       operationId: renameWorkspaceDocumentLegacy
       x-mint:
@@ -933,7 +980,12 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - in: query
           name: workspaceId
-          description: Scope the list to one workspace.
+          deprecated: true
+          description: |
+            Scope the list to one container (deprecated param name): a
+            legacy workspace id filters by `tables.workspace_id`; a
+            chat-session id (e.g. an agent id) filters to the tables
+            linked to that session.
           schema: { type: string, format: uuid }
       responses:
         '200':
@@ -961,7 +1013,7 @@ paths:
       responses:
         '200':
           description: |
-            Column objects in the canonical list envelope. Not paginated —
+            Column objects in the canonical list envelope. Not paginated;
             `nextCursor` is always `null`.
           content:
             application/json:
@@ -988,7 +1040,7 @@ paths:
         for the query's scope). `?cells=flat` returns the v1-style
         `{ slug: value }` rows (deliberately unstamped); `?format=csv`
         streams CSV. Supports slug-keyed `filters` / `sort` JSON and cursor
-        pagination — this endpoint allows `limit` up to **200**.
+        pagination; this endpoint allows `limit` up to **200**.
       operationId: listRows
       x-mint:
         href: /agents/reference/list-rows
@@ -1050,7 +1102,7 @@ paths:
       description: |
         Soft-deletes the given rows (up to **100** per call). Each row and its
         cells / cell_runs / active sequences cascade off. Ids that don't belong
-        to this table/org, or are already deleted, are skipped — so `deleted`
+        to this table/org, or are already deleted, are skipped, so `deleted`
         may be less than `requested` (an idempotent re-delete returns
         `deleted: 0`). Deleted rows are recoverable via the app's restore flow.
       operationId: deleteRows
@@ -1096,7 +1148,7 @@ paths:
       tags: [Workspace]
       summary: Upsert rows on matchColumns (the single v2 batch write primitive)
       description: |
-        v2's one row-write endpoint — there is no bare per-row insert (an
+        v2's one row-write endpoint; there is no bare per-row insert (an
         insert-only call is just an upsert whose rows match nothing). All writes
         go through `api_batches` and are idempotent per `batchId`.
 
@@ -1113,12 +1165,12 @@ paths:
         - Duplicate request keys → `DUPLICATE_MATCH_KEY`; multiple existing rows
           match one key → `AMBIGUOUS_MATCH` (409).
         - `enrich` (default true) enriches freshly **inserted** rows.
-        - `reenrichUpdated` (default false) — set true to also re-run enrichment
+        - `reenrichUpdated` (default false): set true to also re-run enrichment
           on rows the upsert **updated** (re-spends credits); off by default so an
           upsert never silently re-enriches matched rows.
 
         Only `input`-kind columns are writable. Enrichment, score, and
-        **sequence** columns are populated automatically — sequences are
+        **sequence** columns are populated automatically; sequences are
         agent/column-generated only (see `POST /tables/{tableId}/campaigns`),
         never set via this endpoint; passing one returns `NON_INPUT_COLUMNS`.
 
@@ -1144,7 +1196,7 @@ paths:
                 batchId: { type: string, format: uuid }
       responses:
         '201':
-          description: The upsert receipt — an `enrichment_run` reference with per-outcome counts.
+          description: 'The upsert receipt: an `enrichment_run` reference with per-outcome counts.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpsertReceipt' }
@@ -1153,6 +1205,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpsertReceipt' }
+        '400': { description: 'VALIDATION_ERROR (bad body, more than 100 rows, or empty matchColumns; a JSON upsert exceeding 100 rows returns VALIDATION_ERROR here, not TOO_MANY_ROWS, which is the 413 for the CSV upsert-file endpoint only); UNKNOWN_COLUMN; MISSING_MATCH_VALUE; DUPLICATE_MATCH_KEY; NON_INPUT_COLUMNS; UNKNOWN_FIELDS.' }
+        '404': { description: TABLE_NOT_FOUND. }
+        '409': { description: 'AMBIGUOUS_MATCH: multiple existing rows match one key.' }
   /tables/{tableId}/rows/upsert-file:
     parameters:
       - $ref: '#/components/parameters/TableId'
@@ -1164,7 +1219,7 @@ paths:
         is a base64-encoded CSV whose headers are input-column slugs (the same
         keys as JSON upsert rows) with one record per data row. Identical
         match/enrich semantics, identical per-`batchId` idempotency, identical
-        row cap — a CSV with more than **100** data rows is rejected with
+        row cap: a CSV with more than **100** data rows is rejected with
         `413 TOO_MANY_ROWS` (split the file or page the JSON upsert).
       operationId: upsertRowsFromFile
       x-mint:
@@ -1189,7 +1244,7 @@ paths:
                 batchId: { type: string, format: uuid }
       responses:
         '201':
-          description: The upsert receipt — an `enrichment_run` reference with per-outcome counts.
+          description: 'The upsert receipt: an `enrichment_run` reference with per-outcome counts.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpsertReceipt' }
@@ -1198,9 +1253,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpsertReceipt' }
-        '400': { description: 'VALIDATION_ERROR — bad base64 / undecodable or empty CSV.' }
+        '400': { description: 'VALIDATION_ERROR: bad base64 / undecodable or empty CSV.' }
         '413':
-          description: TOO_MANY_ROWS — the CSV exceeds 100 data rows; details carry `{ rows, limit }`.
+          description: 'TOO_MANY_ROWS: the CSV exceeds 100 data rows; details carry `{ rows, limit }`.'
         '404': { description: TABLE_NOT_FOUND. }
   /tables/{tableId}/cancel:
     parameters:
@@ -1210,7 +1265,7 @@ paths:
       summary: Stop active cell work for a table (the API "stop" button)
       description: |
         Cancel every active (waiting / queued / running) `cell_run` for the
-        table — the API equivalent of the in-app "stop" button. Running cells
+        table: the API equivalent of the in-app "stop" button. Running cells
         finish their in-flight execution but skip further work once they observe
         the cancelled status; sent history is never touched.
 
@@ -1223,7 +1278,7 @@ paths:
           `UNKNOWN_COLUMN`; an empty array → `VALIDATION_ERROR`.
         - `dryRun: true` reports how much is active right now
           (`{ dryRun, tableId, activeCells, activeLeadSourceJobs }`) with zero
-          writes — the "what's running?" probe. `activeCells` respects the
+          writes; the "what's running?" probe. `activeCells` respects the
           `columns` scope; `activeLeadSourceJobs` is always the table-wide count
           (lead-source jobs aren't per-column), so a scoped dry-run still tells
           you the truth about table activity.
@@ -1251,10 +1306,10 @@ paths:
                   description: Column slugs to scope the stop to. Omit to stop every column.
                 dryRun: { type: boolean, default: false }
       responses:
-        '200': { description: '{ tableId, cancelledCells, cancelledLeadSourceJobs } — or the dryRun report.' }
+        '200': { description: '{ tableId, cancelledCells, cancelledLeadSourceJobs }, or the dryRun report.' }
         '400': { description: 'VALIDATION_ERROR / UNKNOWN_COLUMN.' }
         '404': { description: TABLE_NOT_FOUND. }
-        '500': { description: 'CANCEL_PARTIALLY_FAILED — one leg failed; details carry the partial cancelledCells/cancelledLeadSourceJobs + failures[].' }
+        '500': { description: 'CANCEL_PARTIALLY_FAILED: one leg failed; details carry the partial cancelledCells/cancelledLeadSourceJobs + failures[].' }
   /tables/{tableId}/rows/{rowId}:
     parameters:
       - $ref: '#/components/parameters/TableId'
@@ -1291,8 +1346,8 @@ paths:
       tags: [Workspace]
       summary: List enrichment runs (cursor-paginated; ?tableId=)
       description: |
-        Org-wide list of enrichment runs — the tracked batches of
-        column-over-row work (upserts, file ingests) — newest first.
+        Org-wide list of enrichment runs, the tracked batches of
+        column-over-row work (upserts, file ingests), newest first.
         Optional `?tableId=` filter. `GET /batches` is the deprecated alias.
       operationId: listEnrichmentRuns
       x-mint:
@@ -1318,7 +1373,7 @@ paths:
                       items:
                         type: array
                         items: { $ref: '#/components/schemas/EnrichmentRun' }
-        '400': { description: VALIDATION_ERROR — malformed tableId. }
+        '400': { description: 'VALIDATION_ERROR: malformed tableId.' }
   /enrichment-runs/{runId}:
     parameters:
       - $ref: '#/components/parameters/EnrichmentRunId'
@@ -1326,8 +1381,8 @@ paths:
       tags: [Workspace]
       summary: Track an enrichment run (incl. per-row upsert outcomes)
       description: |
-        Run status, row count, enrichment counts, credits used, and — for
-        `upsert`-type runs — the per-row `outcomes[]` ledger plus
+        Run status, row count, enrichment counts, credits used, and, for
+        `upsert`-type runs, the per-row `outcomes[]` ledger plus
         `outcomeCounts`. `GET /batches/{batchId}` is the deprecated alias.
       operationId: getEnrichmentRun
       x-mint:
@@ -1338,7 +1393,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EnrichmentRunDetail' }
-        '404': { description: BATCH_NOT_FOUND — enrichment run not found. }
+        '404': { description: 'BATCH_NOT_FOUND: enrichment run not found.' }
   /tables/{tableId}/enrichment-runs:
     parameters:
       - $ref: '#/components/parameters/TableId'
@@ -1347,7 +1402,7 @@ paths:
       summary: List a table's enrichment runs (cursor-paginated)
       description: |
         Same list as `GET /enrichment-runs?tableId=`, but the table is
-        resolved org-scoped first — a missing or cross-org table returns
+        resolved org-scoped first; a missing or cross-org table returns
         `404 TABLE_NOT_FOUND` instead of an empty list.
       operationId: listTableEnrichmentRuns
       x-mint:
@@ -1402,7 +1457,7 @@ paths:
       deprecated: true
       tags: [Workspace]
       summary: 'Legacy alias: list enrichment runs (use GET /enrichment-runs)'
-      description: Deprecated alias for `GET /enrichment-runs` — identical parameters and response.
+      description: Deprecated alias for `GET /enrichment-runs`; identical parameters and response.
       operationId: listBatches
       x-mint:
         href: /agents/reference/list-batches
@@ -1433,7 +1488,7 @@ paths:
       deprecated: true
       tags: [Workspace]
       summary: 'Legacy alias: track an enrichment run (use GET /enrichment-runs/{runId})'
-      description: Deprecated alias for `GET /enrichment-runs/{runId}` — identical response.
+      description: Deprecated alias for `GET /enrichment-runs/{runId}`; identical response.
       operationId: getBatch
       x-mint:
         href: /agents/reference/get-batch
@@ -1445,7 +1500,7 @@ paths:
               schema: { $ref: '#/components/schemas/EnrichmentRunDetail' }
         '404': { description: BATCH_NOT_FOUND. }
 
-  # ── Outreach segment — campaigns, sequences, steps ──────────────
+  # ── Outreach segment: campaigns, sequences, steps ──────────────
   /sequences:
     get:
       tags: [Sequences]
@@ -1462,6 +1517,11 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - in: query
           name: workspaceId
+          deprecated: true
+          description: |
+            Deprecated container scope: a legacy workspace id, or a
+            chat-session id (sequences on the session's linked tables or
+            in its linked campaigns).
           schema: { type: string, format: uuid }
         - in: query
           name: tableId
@@ -1500,7 +1560,7 @@ paths:
       tags: [Sequences]
       summary: List a table's sequences (cursor-paginated, filtered)
       description: |
-        Sequences scoped to one table — the quick "does this table have any
+        Sequences scoped to one table; the quick "does this table have any
         sequences?" read. Same filters (status / channel / recipient) and
         pagination as `GET /sequences`, but the table is resolved org-scoped
         first, so a missing or cross-org table returns 404 TABLE_NOT_FOUND
@@ -1540,7 +1600,7 @@ paths:
       tags: [Sequences]
       summary: 'Legacy alias: create a campaign (use POST /tables/{tableId}/campaigns)'
       description: |
-        Deprecated alias for `POST /tables/{tableId}/campaigns` — identical
+        Deprecated alias for `POST /tables/{tableId}/campaigns`; identical
         body and responses (agentic campaign creation from
         `{ instructions }`, `202` with `{ agent, run, table }`).
       operationId: createTableSequence
@@ -1562,7 +1622,7 @@ paths:
                   maxLength: 10000
                   description: Free-form description of the campaign to draft.
       responses:
-        '202': { description: '{ agent, run, table } — run admitted, work runs in background.' }
+        '202': { description: '{ agent, run, table }: run admitted, work runs in background.' }
         '400': { description: VALIDATION_ERROR. }
         '402': { description: INSUFFICIENT_CREDITS. }
         '404': { description: TABLE_NOT_FOUND. }
@@ -1589,7 +1649,7 @@ paths:
       summary: Delete a sequence (?force=true, ?dryRun=true)
       description: |
         Soft-deletes one sequence. Without `?force=true`, a sequence with a
-        sent footprint is guarded — `409 SEQUENCE_HAS_SENT_MESSAGES`;
+        sent footprint is guarded, `409 SEQUENCE_HAS_SENT_MESSAGES`;
         `?force=true` (`forceDeletionOfSentMessages`) extends the delete to
         already-sent messages. `?dryRun=true` reports the would-be effect
         (`{ dryRun, sequenceId, status, force }`) with no writes. Replaces
@@ -1607,7 +1667,7 @@ paths:
           description: Report the would-be effect; write nothing.
           schema: { type: boolean, default: false }
       responses:
-        '200': { description: '{ sequenceId, deleted: true } — or the dryRun report.' }
+        '200': { description: '{ sequenceId, deleted: true }, or the dryRun report.' }
         '409': { description: SEQUENCE_HAS_SENT_MESSAGES. }
         '404': { description: SEQUENCE_NOT_FOUND. }
   /sequences/{sequenceId}/stop:
@@ -1628,7 +1688,7 @@ paths:
           name: dryRun
           schema: { type: boolean, default: false }
       responses:
-        '200': { description: '{ sequenceId, action } — or the dryRun report.' }
+        '200': { description: '{ sequenceId, action }, or the dryRun report.' }
         '404': { description: SEQUENCE_NOT_FOUND. }
   /sequences/{sequenceId}/delete:
     parameters:
@@ -1660,12 +1720,12 @@ paths:
       tags: [Campaigns]
       summary: List a workspace's campaigns
       description: |
-        A campaign is a first-class `campaigns` row (org-global,
-        workspace-homed) whose queue is the set of sequences stamped with
-        its id — one sequence per person. Campaigns are homed on a
-        workspace, so the workspace is the primary list scope. Returns the
-        canonical list envelope with `nextCursor: null` (one page, newest
-        first).
+        A campaign is a first-class `campaigns` row (org-global) whose
+        queue is the set of sequences stamped with its id: one sequence
+        per person. The deprecated container scope lists a legacy
+        workspace's homed campaigns, or a chat session's LINKED
+        campaigns when the id names a session. Returns the canonical
+        list envelope with `nextCursor: null` (one page, newest first).
       operationId: listWorkspaceCampaigns
       x-mint:
         href: /agents/reference/list-workspace-campaigns
@@ -1692,8 +1752,8 @@ paths:
       summary: List campaigns that send from a table
       description: |
         The campaigns whose enrolled sequences send from this table. A
-        campaign owns no table — its `tableId` is derived from the dominant
-        table of its enrolled sequences — so this resolves the table's
+        campaign owns no table; its `tableId` is derived from the dominant
+        table of its enrolled sequences, so this resolves the table's
         active campaign(s). Returns the canonical list envelope with
         `nextCursor: null`.
       operationId: listTableCampaigns
@@ -1718,7 +1778,7 @@ paths:
       tags: [Campaigns]
       summary: Create a campaign on a table (agentic)
       description: |
-        Agentic campaign creation. Minimal body `{ instructions }` — no
+        Agentic campaign creation. Minimal body `{ instructions }`: no
         column or channel; campaigns can be multi-channel and the agent
         infers the rest from the instructions and the table. Delegates to
         the chat agent via the v2 run path and responds `202 Accepted` with
@@ -1831,11 +1891,11 @@ paths:
       tags: [Campaigns]
       summary: List the people in a campaign (keyset-paginated, filtered)
       description: |
-        The people enrolled in the campaign — one row per enrolled sequence
+        The people enrolled in the campaign: one row per enrolled sequence
         (recipient), with send status, fit score / explanation, and identity
         profile. Keyset-paginated via an opaque `cursor`; the list envelope
         additionally carries a top-level `total`.
-        `GET /campaigns/{campaignId}/sequences` is a synonym (same shape) —
+        `GET /campaigns/{campaignId}/sequences` is a synonym (same shape);
         in the campaign model a person IS a sequence.
       operationId: listCampaignPeople
       x-mint:
@@ -1876,7 +1936,7 @@ paths:
       tags: [Campaigns]
       summary: 'Synonym of GET /campaigns/{campaignId}/people'
       description: |
-        Identical to `GET /campaigns/{campaignId}/people` — same
+        Identical to `GET /campaigns/{campaignId}/people`: same
         `campaign_person` item shape, same `search` / `status` (CSV) /
         `cursor` / `limit` params, same top-level `total`. In the campaign
         model a person IS a sequence.
@@ -1932,7 +1992,7 @@ paths:
       summary: Request a content change to a campaign (agentic)
       description: |
         The ONLY way to change campaign content (message templates, per-lead
-        copy, the brief). Minimal body `{ instructions }` — a natural-
+        copy, the brief). Minimal body `{ instructions }`, a natural-
         language change request the chat agent fulfils. Delegates to the v2
         run path and responds `202 Accepted` with `{ agent, run, campaign }`
         (poll `GET /agents/{agentId}/runs/{runId}`). The API never mutates a
@@ -1983,14 +2043,14 @@ paths:
       - $ref: '#/components/parameters/CampaignId'
     post:
       tags: [Campaigns]
-      summary: Launch a campaign — activate + run the launch pipeline (alias /send)
+      summary: 'Launch a campaign: activate + run the launch pipeline (alias /send)'
       description: |
         Marks the campaign ready: sets `status: active` and runs the full
         launch pipeline campaign-keyed (sender gate, duplicate auto-cancel,
         per-account scheduling). Idempotent on an already-active campaign.
 
         **Launch is "mark ready", never "force".** There are NO override
-        knobs — send windows, daily caps, spacing, and duplicate settings
+        knobs: send windows, daily caps, spacing, and duplicate settings
         are the campaign's own persisted config, set through the agent,
         never per-call. `POST /campaigns/{campaignId}/send` is an alias.
         `?dryRun=true` returns `{ dryRun: true, campaignId, wouldLaunch: true }`
@@ -2005,7 +2065,7 @@ paths:
           schema: { type: boolean, default: false }
       responses:
         '200':
-          description: The transition result — or the dryRun report.
+          description: The transition result, or the dryRun report.
           content:
             application/json:
               schema:
@@ -2018,6 +2078,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
         '404': { description: CAMPAIGN_NOT_FOUND. }
+        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry.' }
   /campaigns/{campaignId}/send:
     parameters:
       - $ref: '#/components/parameters/CampaignId'
@@ -2025,7 +2086,7 @@ paths:
       tags: [Campaigns]
       summary: 'Alias of POST /campaigns/{campaignId}/launch'
       description: |
-        Alias of `POST /campaigns/{campaignId}/launch` — activates the
+        Alias of `POST /campaigns/{campaignId}/launch`; activates the
         campaign and runs the launch pipeline. (Before the campaigns
         refactor this was a batch "mark sequences ready" op; it is now the
         campaign-activate launch.) Same body, params, and result shape.
@@ -2039,7 +2100,7 @@ paths:
           schema: { type: boolean, default: false }
       responses:
         '200':
-          description: The transition result — or the dryRun report.
+          description: The transition result, or the dryRun report.
           content:
             application/json:
               schema:
@@ -2052,6 +2113,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
         '404': { description: CAMPAIGN_NOT_FOUND. }
+        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry.' }
   /campaigns/{campaignId}/pause:
     parameters:
       - $ref: '#/components/parameters/CampaignId'
@@ -2059,7 +2121,7 @@ paths:
       tags: [Campaigns]
       summary: Pause a campaign (idempotent; ?dryRun=true)
       description: |
-        Pauses the campaign. Idempotent — pausing an already-paused campaign
+        Pauses the campaign. Idempotent; pausing an already-paused campaign
         is a no-op. `?dryRun=true` returns
         `{ dryRun: true, campaignId, wouldPause }` with no writes; a real
         pause returns the transition result carrying the `pause` facts.
@@ -2073,7 +2135,7 @@ paths:
           schema: { type: boolean, default: false }
       responses:
         '200':
-          description: The transition result — or the dryRun report.
+          description: The transition result, or the dryRun report.
           content:
             application/json:
               schema:
@@ -2108,7 +2170,7 @@ paths:
           schema: { type: boolean, default: false }
       responses:
         '200':
-          description: The transition result — or the dryRun report.
+          description: The transition result, or the dryRun report.
           content:
             application/json:
               schema:
@@ -2121,6 +2183,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldResume: { type: boolean }
         '404': { description: CAMPAIGN_NOT_FOUND. }
+        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry.' }
 
   # ── Scheduled agents segment ─────────────────────────────────────
   /scheduled-agents:
@@ -2135,6 +2198,11 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - in: query
           name: workspaceId
+          deprecated: true
+          description: |
+            Deprecated container filter: a legacy workspace id, or a
+            chat-session id (matches agents anchored to that origin
+            session).
           schema: { type: string, format: uuid }
         - in: query
           name: enabled
@@ -2159,18 +2227,37 @@ paths:
     post:
       tags: [Scheduled agents]
       summary: Create a scheduled agent (disabled by default)
-      description: Requires workspaceId/name/prompt/cron. Invalid cron → INVALID_CRON / CRON_TOO_FREQUENT.
+      description: Requires name/prompt/cron. workspaceId is optional/nullable (a deprecated container anchor), not required. Invalid cron → INVALID_CRON / CRON_TOO_FREQUENT.
       operationId: createScheduledAgent
       x-mint:
         href: /agents/reference/create-scheduled-agent
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, prompt, cron]
+              properties:
+                name: { type: string, maxLength: 120 }
+                prompt: { type: string }
+                cron: { type: string, description: A cron expression. }
+                workspaceId: { type: string, format: uuid, nullable: true, deprecated: true, description: Deprecated container anchor; optional. }
+                enabled: { type: boolean }
+                description: { type: string, nullable: true }
+                model: { type: string, nullable: true }
+                slug: { type: string, minLength: 1, maxLength: 60 }
       responses:
         '201':
           description: The created scheduled agent.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ScheduledAgent' }
+        '400': { description: 'VALIDATION_ERROR; INVALID_CRON; CRON_TOO_FREQUENT.' }
+        '404': { description: 'WORKSPACE_NOT_FOUND: a supplied workspaceId does not resolve.' }
+        '409': { description: 'SLUG_TAKEN; SLUG_EXHAUSTED.' }
   /scheduled-agents/{id}:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -2193,12 +2280,27 @@ paths:
       operationId: patchScheduledAgent
       x-mint:
         href: /agents/reference/update-scheduled-agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                prompt: { type: string }
+                cron: { type: string }
+                model: { type: string }
+                enabled: { type: boolean }
       responses:
         '200':
           description: The updated scheduled agent.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ScheduledAgent' }
+        '400': { description: 'VALIDATION_ERROR; INVALID_CRON; CRON_TOO_FREQUENT.' }
+        '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
     delete:
       tags: [Scheduled agents]
       summary: Delete a scheduled agent (soft-delete)
@@ -2207,6 +2309,7 @@ paths:
         href: /agents/reference/delete-scheduled-agent
       responses:
         '200': { description: '{ deleted: true }.' }
+        '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
   /scheduled-agents/{id}/enable:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -2224,6 +2327,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ScheduledAgent' }
+        '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
   /scheduled-agents/{id}/disable:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -2241,6 +2345,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ScheduledAgent' }
+        '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
   /scheduled-agents/{id}/trigger:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -2264,7 +2369,7 @@ paths:
       summary: Run history (failed runs carry a workspace-chat handoff)
       description: |
         Run history newest-first, in the canonical list envelope. Not
-        paginated — `nextCursor` is always `null`.
+        paginated; `nextCursor` is always `null`.
       operationId: listScheduledAgentRuns
       x-mint:
         href: /agents/reference/list-scheduled-agent-runs
@@ -2292,7 +2397,7 @@ paths:
         Projects are managed **from the parent**: every `/projects/*`
         endpoint acts on the API key's own (parent) org and ignores the
         `x-origami-project` header. Newest first; a parent with no
-        projects gets an empty page — "you have no projects" is not an
+        projects gets an empty page; "you have no projects" is not an
         error.
       operationId: listProjects
       x-mint:
@@ -2324,7 +2429,7 @@ paths:
       description: |
         Creates a project under the API key's parent org.
         `monthlyCredits` is the optional per-project budget cap in
-        credits — `null` or omitted means uncapped. A child org's key
+        credits; `null` or omitted means uncapped. A child org's key
         cannot create projects (nesting is one level deep) →
         `400 PARENT_REQUIRED`.
       operationId: createProject
@@ -2344,6 +2449,7 @@ paths:
                 monthlyCredits:
                   type: integer
                   minimum: 1
+                  maximum: 100000000
                   nullable: true
                   description: Monthly budget cap in credits; null/omitted = uncapped.
       responses:
@@ -2353,7 +2459,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Project' }
         '400':
-          description: "VALIDATION_ERROR — bad body; or PARENT_REQUIRED — a child org's key cannot create projects."
+          description: "VALIDATION_ERROR: bad body; or PARENT_REQUIRED: a child org's key cannot create projects."
   /projects/{projectId}:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -2393,6 +2499,7 @@ paths:
                 monthlyCredits:
                   type: integer
                   minimum: 1
+                  maximum: 100000000
                   nullable: true
                   description: Number sets the cap, explicit null clears it, omitted leaves it alone.
                 enforcement:
@@ -2408,15 +2515,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Project' }
-        '400': { description: VALIDATION_ERROR. }
+        '400':
+          description: >
+            `VALIDATION_ERROR` for a malformed body, or `BUDGET_CAP_REQUIRED` when
+            `enforcement` is sent for a project that has (or would end up with) no
+            `monthlyCredits` cap; enforcement is a property of a cap, so set one first.
         '404':
           $ref: '#/components/responses/ProjectNotFound'
+        '500':
+          description: >
+            `ENFORCEMENT_UPDATE_FAILED` / `BUDGET_UPDATE_FAILED`: the budget change
+            could not be durably applied; the request is idempotent, so retry.
     delete:
       tags: [Projects]
       summary: Delete a project (two-step; ?confirm=true, ?dryRun=true)
       description: |
         Deletes the project (child org) and cascades across its whole
-        entity tree. Follows the v2 deletes convention — deliberately
+        entity tree. Follows the v2 deletes convention, deliberately
         two-step:
 
         1. Without `?confirm=true` (or with `?dryRun=true`) → HTTP 200
@@ -2510,6 +2625,11 @@ components:
       in: path
       name: workspaceId
       required: true
+      deprecated: true
+      description: |
+        Deprecated container id: a legacy workspace id OR a chat-session
+        id (the session-container form is what v2 returns for new
+        agents). Both resolve everywhere this parameter appears.
       schema: { type: string, format: uuid }
     DocumentId:
       in: path
@@ -2564,7 +2684,7 @@ components:
       name: x-origami-project
       required: false
       description: |
-        Project (child org) selector — accepted on **every** v2 request
+        Project (child org) selector, accepted on **every** v2 request
         except `/projects/*` (where it is ignored; see the Tenancy
         section in the API description). Present → the request is
         scoped to that project under the API key's parent org; absent →
@@ -2595,13 +2715,13 @@ components:
       name: Idempotency-Key
       required: false
       description: |
-        Transport-level replay protection — any v2 `POST` may send it
-        (1–255 printable ASCII characters; UUIDs recommended). The first
+        Transport-level replay protection: any v2 `POST` may send it
+        (1-255 printable ASCII characters; UUIDs recommended). The first
         response for a key is recorded and replayed verbatim for retries
         with the same key + method/path/body for 24 hours; replayed
         responses carry the `Idempotency-Replay: true` response header.
-        Reusing a key with a *different* request — or retrying while the
-        original is still in flight — returns `409 IDEMPOTENCY_ERROR`.
+        Reusing a key with a *different* request, or retrying while the
+        original is still in flight, returns `409 IDEMPOTENCY_ERROR`.
         5xx responses are never recorded (the retry re-executes).
       schema:
         type: string
@@ -2653,16 +2773,23 @@ components:
           type: string
           format: uuid
           nullable: true
+          deprecated: true
+          description: |
+            Deprecated container anchor. A legacy workspace id keeps the
+            old semantics; a chat-session id creates the agent "in" that
+            session container (links + uploaded documents are
+            inherited); null/omitted creates a fresh workspace-less
+            agent.
         focusTableIds:
           type: array
           items: { type: string, format: uuid }
           maxItems: 50
           default: []
           description: |
-            Table ids to focus the agent on. When the caller also
-            supplies `workspaceId`, every id must belong to that
-            workspace. When `workspaceId` is omitted, the workspace
-            is inferred from the first id.
+            Table ids to focus the agent on. With a legacy workspace
+            `workspaceId`, every id must belong to that workspace; with
+            a session container or no `workspaceId`, any org-owned
+            table qualifies (it is linked to the agent's session).
         attachments:
           type: array
           maxItems: 20
@@ -2672,13 +2799,17 @@ components:
             Bind existing resources to the run. A `document` is injected as
             an attached file the agent reads with `ctx.loadFile(path)` (its
             current path is re-resolved at run start); a `table` is merged
-            into `focusTableIds`. Every attachment must belong to the run's
-            workspace + org, else `400 INVALID_ATTACHMENT` before admission.
+            into `focusTableIds`. Scope follows the run's container: with a
+            legacy workspace, every attachment must belong to that workspace;
+            on a workspace-less (session-container) run, documents may come
+            from the agent session, its origin session container, or the
+            org-wide pool, and any org-owned table qualifies. Out-of-scope
+            ids → `400 INVALID_ATTACHMENT` before admission.
         model:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id. Plan-aware default — highest model unlocked
+            Public model id. Plan-aware default: highest model unlocked
             on the caller's plan (`origami-lite` for `starter`,
             `origami-max` for `pro`+). Resolved server-side to an
             internal chat-agent model; the response's `request.model`
@@ -2727,7 +2858,7 @@ components:
         name: { type: string }
         createdByApi:
           type: boolean
-          description: True when the workspace was created through the API (upload-first bootstrap or agent auto-create).
+          description: True when the container was created through the API (session containers and legacy API-created workspaces).
         url:
           type: string
           format: uri
@@ -2758,10 +2889,10 @@ components:
         documentId:
           type: string
           format: uuid
-          description: Legacy alias of `id` — kept for pre-restructure consumers.
+          description: Legacy alias of `id`, kept for pre-restructure consumers.
         filename:
           type: string
-          description: Last segment of the VFS path — the user-facing filename.
+          description: 'Last segment of the VFS path: the user-facing filename.'
         vfsPath: { type: string }
         kind: { type: string }
         status: { type: string }
@@ -2800,7 +2931,7 @@ components:
               tableId:
                 type: string
                 format: uuid
-                description: Required when mode is `append` — the table to append CSV rows to.
+                description: 'Required when mode is `append`: the table to append CSV rows to.'
     Row:
       type: object
       required: [object, id, cells]
@@ -2845,7 +2976,7 @@ components:
             cancelled: { type: integer }
     EnrichmentRun:
       type: object
-      required: [object, id, batchId, tableId, type, status, createdAt, completedAt]
+      required: [object, id, batchId, tableId, type, status, createdAt, completedAt, tableRunId]
       description: |
         A tracked batch of column-over-row work on a table (upserts, file
         ingests). `id` is canonical; `batchId` is the kept legacy alias
@@ -2856,7 +2987,7 @@ components:
         batchId:
           type: string
           format: uuid
-          description: Legacy alias of `id` — kept for pre-restructure consumers.
+          description: Legacy alias of `id`, kept for pre-restructure consumers.
         tableId: { type: string, format: uuid }
         type:
           type: string
@@ -2873,6 +3004,9 @@ components:
             poll `GET /tables/{tableId}/runs/{runId}` or await the
             `table.run.completed` webhook without a version bump.
             `null` for `enrich=false` writes and pre-migration batches.
+            Completion is first-owner scoped: overlapping cells already active
+            under an earlier run are not adopted into this parent, so this run
+            can complete while those cells are still executing elsewhere.
     EnrichmentRunDetail:
       allOf:
         - $ref: '#/components/schemas/EnrichmentRun'
@@ -2897,7 +3031,7 @@ components:
               description: Settled credit cost. `0` until the run reaches a terminal status.
             outcomes:
               type: array
-              description: Present only on `upsert`-type runs — the per-row outcome ledger.
+              description: 'Present only on `upsert`-type runs: the per-row outcome ledger.'
               items:
                 type: object
                 required: [inputIndex, rowId, outcome]
@@ -2918,7 +3052,7 @@ components:
       required: [object, id, batchId, tableRunId, counts]
       description: |
         Response of `POST /tables/{tableId}/rows/upsert` and
-        `.../rows/upsert-file` — an `enrichment_run` reference the caller
+        `.../rows/upsert-file`: an `enrichment_run` reference the caller
         polls via `GET /enrichment-runs/{runId}`.
       properties:
         object: { type: string, const: enrichment_run }
@@ -2936,6 +3070,9 @@ components:
             poll `GET /tables/{tableId}/runs/{runId}` or await the
             `table.run.completed` webhook without a version bump.
             `null` for `enrich=false` writes and pre-migration batches.
+            Completion is first-owner scoped: overlapping cells already active
+            under an earlier run are not adopted into this parent, so this run
+            can complete while those cells are still executing elsewhere.
         counts:
           type: object
           required: [inserted, updated, skipped]
@@ -2947,7 +3084,7 @@ components:
       type: object
       required: [object, id, slug, name, status, workspaceId, tableId, channels, settings, brief, outOfLeads, createdAt, updatedAt]
       description: |
-        A first-class `campaigns` row — org-global, homed in a workspace.
+        A first-class `campaigns` row: org-global, homed in a workspace.
         Its queue is the set of sequences stamped with its id (one sequence
         per person). It owns no table: `tableId` is derived (informational)
         from the dominant table of its enrolled sequences.
@@ -2960,7 +3097,12 @@ components:
           type: string
           enum: [draft, active, paused]
           description: The campaign's lifecycle state.
-        workspaceId: { type: string, format: uuid }
+        workspaceId:
+          type: string
+          format: uuid
+          nullable: true
+          deprecated: true
+          description: Legacy home workspace; null for campaigns created from workspace-less chats.
         tableId:
           type: string
           format: uuid
@@ -3001,12 +3143,12 @@ components:
         status: { type: string, enum: [draft, active, paused] }
         peopleCount:
           type: integer
-          description: Live enrolled sequences (people) — non-deleted, non-cancelled.
+          description: 'Live enrolled sequences (people): non-deleted, non-cancelled.'
     CampaignPerson:
       type: object
       required: [object, sequenceId, rowId, recipient, sendStatus, stopReason, profile, fitExplanation, fitScore, addedAt]
       description: |
-        One person (enrolled sequence) in a campaign — the People-tab row
+        One person (enrolled sequence) in a campaign: the People-tab row
         shape. Returned by `GET /campaigns/{campaignId}/people` and its
         `/sequences` synonym.
       properties:
@@ -3028,7 +3170,7 @@ components:
         fitScore:
           type: integer
           nullable: true
-          description: 0–100 fit score of the source row, or null.
+          description: 0-100 fit score of the source row, or null.
         addedAt: { type: string, format: date-time, nullable: true }
     CampaignStats:
       type: object
@@ -3114,7 +3256,7 @@ components:
       type: object
       required: [object, id, name, monthlyCredits, enforcement, usage, createdAt]
       description: |
-        A project is a **child org** under the parent (agency) org — a
+        A project is a **child org** under the parent (agency) org: a
         customer's own isolated set of workspaces/tables while credits
         and the concurrency pool stay shared at the parent. Select it on
         any non-`/projects` request via the `x-origami-project` header.
@@ -3124,6 +3266,8 @@ components:
         name: { type: string }
         monthlyCredits:
           type: number
+          minimum: 1
+          maximum: 100000000
           nullable: true
           description: Monthly budget cap in credits, or `null` when uncapped.
         enforcement:
@@ -3139,7 +3283,7 @@ components:
           required: [spent, reserved]
           description: |
             This billing period's settled spend plus live in-flight
-            reservations attributed to the project, in credits — the
+            reservations attributed to the project, in credits; the
             same numbers the in-app Teams page shows.
           properties:
             spent:
@@ -3176,19 +3320,24 @@ components:
         sequenceId:
           type: string
           format: uuid
-          description: Legacy alias of `id` — kept for pre-restructure consumers.
+          description: Legacy alias of `id`, kept for pre-restructure consumers.
         campaignId:
           type: string
           format: uuid
           nullable: true
-          description: The first-class campaigns-row id this thread is enrolled in — follow it into `GET /campaigns/{campaignId}`. Distinct from `columnId` (the outreach column); null for legacy campaign-less sequences.
+          description: The first-class campaigns-row id this thread is enrolled in; follow it into `GET /campaigns/{campaignId}`. Distinct from `columnId` (the outreach column); null for legacy campaign-less sequences.
         status: { type: string }
         stopReason: { type: string, nullable: true }
         sendStatus: { type: string, nullable: true }
         tableId: { type: string, format: uuid, nullable: true }
         columnId: { type: string, format: uuid, nullable: true }
         rowId: { type: string, format: uuid, nullable: true }
-        workspaceId: { type: string, format: uuid, nullable: true }
+        workspaceId:
+          type: string
+          format: uuid
+          nullable: true
+          deprecated: true
+          description: Legacy workspace of the sequence's table/campaign; null for workspace-less rows.
         url:
           type: string
           format: uri
@@ -3212,7 +3361,7 @@ components:
         stepId:
           type: string
           format: uuid
-          description: Legacy alias of `id` — kept for pre-restructure consumers.
+          description: Legacy alias of `id`, kept for pre-restructure consumers.
         channel: { type: string }
         kind:
           type: string
@@ -3229,7 +3378,12 @@ components:
       properties:
         object: { type: string, const: scheduled_agent }
         id: { type: string, format: uuid }
-        workspaceId: { type: string, format: uuid }
+        workspaceId:
+          type: string
+          format: uuid
+          nullable: true
+          deprecated: true
+          description: Deprecated container anchor - the legacy workspace, else the origin chat session whose links seed each run; null for container-less agents.
         slug: { type: string }
         name: { type: string }
         description: { type: string, nullable: true }
@@ -3245,7 +3399,7 @@ components:
         url: { type: string, format: uri }
         handoff:
           type: object
-          description: Present when planBlocked — points the caller at the upgrade flow.
+          description: Present when planBlocked; points the caller at the upgrade flow.
     Account:
       type: object
       required: [object, organization, plan, capabilities, workspaces]
@@ -3296,7 +3450,11 @@ components:
         object: { type: string, const: agent }
         id: { type: string, format: uuid }
         name: { type: string }
-        workspaceId: { type: string, format: uuid }
+        workspaceId:
+          type: string
+          format: uuid
+          deprecated: true
+          description: Deprecated container id, always accepted back as a `workspaceId` - the legacy workspace when anchored, else the agent's session container (often the agent's own id).
         createdAt: { type: string, format: date-time }
     Agent:
       allOf:
@@ -3308,7 +3466,7 @@ components:
               type: boolean
               description: |
                 True iff this agent's `chat_session` row has a non-null
-                `created_by_api_key_id` — i.e. it was created by the
+                `created_by_api_key_id`; i.e. it was created by the
                 API and is owned by the caller's org. Always `true` on
                 v2 read paths today; surfaced for forward compatibility.
             lastRun:
@@ -3326,7 +3484,7 @@ components:
         `incomplete` means the model finished the step but the AI
         SDK could not parse a tool call it tried to emit (or it hit
         the output-token cap mid-tool-call), so the multi-step loop
-        ended without the work being done — recoverable by sending
+        ended without the work being done; recoverable by sending
         a follow-up run on the same agent. Deploy restarts are
         auto-followed server-side, so callers never observe a
         `superseded` value.
@@ -3374,7 +3532,7 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id — `origami-lite` or `origami-max`. Echoes
+            Public model id: `origami-lite` or `origami-max`. Echoes
             the caller's request (after legacy-alias normalization)
             or the plan default when the request omitted `model`.
             Internal chat-agent ids (e.g. `origami-lobotomized`) are
@@ -3392,7 +3550,7 @@ components:
         mutations it performed (`actions[]`), the full TableObjects
         for every touched table (`tables[]`), and (optionally) the
         full message transcript. `tables[]` is the resolved version
-        of `actions[].tableId` — same shape as
+        of `actions[].tableId`; same shape as
         `GET /api/v2/tables/{id}`, fanned out server-side. Pass
         `?include=stats` on the Get Run call to attach economics on
         each embedded TableObject.
@@ -3401,7 +3559,7 @@ components:
           type: string
           nullable: true
           description: |
-            Cleaned user-facing assistant text — internal markup
+            Cleaned user-facing assistant text; internal markup
             (`<internal>`, `<plan>`, `<suggestions>`, history-tool
             markers) is stripped server-side, identical to the
             stripping in `transcript` content. `null` when `status`
@@ -3414,7 +3572,7 @@ components:
             Structured workspace-mutation actions the agent performed,
             in the order they fired. Projected from the persisted
             `data-*` parts the chat-agent's execute-code event
-            listener writes onto each assistant message — the same
+            listener writes onto each assistant message; the same
             audit trail the desktop UI renders. Empty when the run
             did no workspace mutations.
         tables:
@@ -3470,7 +3628,7 @@ components:
             promoted to `"needs_input"`. Answer by sending a
             follow-up run on the same agent
             (`POST /agents/{id}/runs`) with the user's answer as
-            `prompt` — any free-text string is accepted; the agent
+            `prompt`: any free-text string is accepted; the agent
             parses it as natural language.
         nextActions:
           type: array
@@ -3486,7 +3644,11 @@ components:
         - type: object
           required: [workspaceId, request, response, todo]
           properties:
-            workspaceId: { type: string, format: uuid }
+            workspaceId:
+              type: string
+              format: uuid
+              deprecated: true
+              description: Deprecated container id (see AgentSummary.workspaceId).
             request: { $ref: '#/components/schemas/RunRequest' }
             response:
               nullable: true
@@ -3584,7 +3746,7 @@ components:
             Answers the agent proposed, in the order it listed them.
             For `single-choice` these are the agent's options; for
             `confirm` it is the single-entry array `["Confirm"]`. This
-            is NOT a hard menu — the caller may always reply with any
+            is NOT a hard menu; the caller may always reply with any
             free-text via the follow-up run (see `freeformOption`).
             The field is here so a host LLM can bias its follow-up
             `prompt` toward what the agent expected.
@@ -3600,15 +3762,15 @@ components:
       enum: [input, enrichment, score, sequence]
       description: |
         Sequence-aware API classification of a column:
-          * `input` — user-entered (`static`) column; the only kind writable
+          * `input`: user-entered (`static`) column; the only kind writable
             via `POST /tables/{tableId}/rows/upsert`.
-          * `enrichment` — `code` column that runs per row to fetch/compute a value.
-          * `score` — relevance / fit-score column.
-          * `sequence` — `code` column that drafts an outbound sequence
+          * `enrichment`: `code` column that runs per row to fetch/compute a value.
+          * `score`: relevance / fit-score column.
+          * `sequence`: `code` column that drafts an outbound sequence
             (`ctx.upsertSequence(...)` / `.draftMessage(...)`, or one that
             already has sequences). List its sequences via
             `GET /tables/{tableId}/sequences`. Created via the agent or column
-            code only — never via the upsert API.
+            code only, never via the upsert API.
     WorkspaceColumn:
       type: object
       required: [object, id, name, slug, kind, autoTrigger]
@@ -3640,13 +3802,13 @@ components:
             (user-TS that runs per row, includes enrichments, scoring, and
             sequence columns), plus other internal-typed kinds for future
             extensibility. Treat as an open string. Prefer `kind` for
-            classification — it splits `code` columns into `enrichment`,
+            classification; it splits `code` columns into `enrichment`,
             `score`, and `sequence`.
         kind:
           $ref: '#/components/schemas/ColumnKind'
           description: |
             Sequence-aware classification of this column. `sequence`
-            columns draft outbound sequences — find them here rather than
+            columns draft outbound sequences; find them here rather than
             inspecting `type` (they share the `code` DB type with
             enrichments). Sequence columns are created via the agent or
             column code, never set through the upsert API.
@@ -3665,7 +3827,7 @@ components:
           description: |
             Per-column historical cost. The table-level
             `credits.lifetimeUsed` is the sum of every column's
-            `credits.lifetimeUsed` — the per-column breakdown is the
+            `credits.lifetimeUsed`; the per-column breakdown is the
             primary surface for "which column is driving cost?".
         cells:
           $ref: '#/components/schemas/CellsLiveness'
@@ -3688,7 +3850,7 @@ components:
       required: [running, errored]
       description: |
         Snapshot of cell-pipeline activity. The v2 run-finished signal
-        is independent of the cell-pipeline-finished signal — when a
+        is independent of the cell-pipeline-finished signal; when a
         run completes, downstream cells often still enrich in the
         background. Surfacing these counts lets the agent distinguish
         "still working on it" from "tried and failed", which is the
@@ -3701,7 +3863,7 @@ components:
             Number of cells currently being processed (a `cell_run` is
             in `waiting`, `queued`, or `running` for that cell).
             `running > 0` means the agent should NOT report "no data
-            found" — wait and re-read.
+            found"; wait and re-read.
         errored:
           type: integer
           minimum: 0
@@ -3710,7 +3872,7 @@ components:
             `errored`, `out_of_credits`, `budget_exceeded`,
             `subscription_required`, and `connection_required`. The
             user-driven `stopped` state is
-            intentionally excluded — it's a cancellation, not a
+            intentionally excluded; it's a cancellation, not a
             failure to surface.
     CreditsLifetime:
       type: object
@@ -3720,7 +3882,7 @@ components:
           type: integer
           description: |
             Sum of all settled cell-run charges, in credits. Stable
-            and additive — once a row enrichment finishes it never
+            and additive; once a row enrichment finishes it never
             moves backwards. Reservations (in-flight cell_runs) are
             not included.
     ColumnStats:
@@ -3752,7 +3914,12 @@ components:
       properties:
         object: { type: string, const: table }
         id: { type: string, format: uuid }
-        workspaceId: { type: string, format: uuid }
+        workspaceId:
+          type: string
+          format: uuid
+          nullable: true
+          deprecated: true
+          description: Legacy home workspace; null for chat-created tables (address them via chat links / their own id).
         name: { type: string }
         leadCount:
           type: integer
@@ -3771,7 +3938,7 @@ components:
         cells:
           $ref: '#/components/schemas/CellsLiveness'
           description: |
-            Table-level liveness rollup — sums every
+            Table-level liveness rollup; sums every
             `columns[].cells`. `running > 0` means at least one cell
             on the table is still being processed (e.g., enrichment
             kicked off by a recent run hasn't fully settled). The
@@ -3798,7 +3965,7 @@ components:
         - leadSources
         - hasUnknownTotalWithMore
       description: |
-        Forward-looking table economics — the same numbers the desktop
+        Forward-looking table economics: the same numbers the desktop
         UI shows at the top of the table. Only present on responses
         that opted in via `?include=stats`.
       properties:
@@ -3941,7 +4108,7 @@ components:
         handoff:
           type: object
           description: |
-            Present on 4xx errors the caller's user can resolve in-app — a
+            Present on 4xx errors the caller's user can resolve in-app: a
             forwardable link on the canonical app origin.
           required: [kind, url, label]
           properties:
@@ -3980,29 +4147,32 @@ components:
                         message: Required
     InsufficientCredits:
       description: |
-        Org out of credits or budget exhausted at admission time. Three distinct
+        Org out of credits or budget exhausted at admission time. Four distinct
         `code` values share this 402 slot:
-        - `INSUFFICIENT_CREDITS` — wallet balance below the run floor; top up to unblock.
-        - `BUDGET_EXCEEDED` — a hard credit budget has no headroom; adjust or remove
-          the budget. The org wallet may still have credits — topping up will not
+        - `INSUFFICIENT_CREDITS`: wallet balance below the run floor; top up to unblock.
+        - `BUDGET_EXCEEDED`: a hard credit budget has no headroom; adjust or remove
+          the budget. The org wallet may still have credits; topping up will not
           unblock this response.
-        - `SUBSCRIPTION_REQUIRED` — the plan does not include API access.
-        Only `error` and `code` are guaranteed on all three shapes.
+        - `SUBSCRIPTION_REQUIRED`: the plan does not include API access.
+        - `ACCOUNT_BLOCKED`: the account is settlement-blocked (e.g. a failed
+          overage invoice); carries a `reason` string. Resolve billing to unblock.
+        Only `error` and `code` are guaranteed on all four shapes.
       content:
         application/json:
           schema:
             type: object
-            # Three distinct 402 shapes share this slot: INSUFFICIENT_CREDITS
+            # Four distinct 402 shapes share this slot: INSUFFICIENT_CREDITS
             # carries the credit fields below; BUDGET_EXCEEDED carries
             # blockedByBudgets; SUBSCRIPTION_REQUIRED (plan lacks API access)
-            # carries only { error, code, hint }. Only `error` + `code` are
-            # common to all three, so the shape-specific fields are optional.
+            # carries only { error, code, hint }; ACCOUNT_BLOCKED carries
+            # { error, code, reason, message }. Only `error` + `code` are
+            # common to all four, so the shape-specific fields are optional.
             required: [error, code]
             properties:
               error: { type: string }
               code:
                 type: string
-                enum: [INSUFFICIENT_CREDITS, BUDGET_EXCEEDED, SUBSCRIPTION_REQUIRED]
+                enum: [INSUFFICIENT_CREDITS, BUDGET_EXCEEDED, SUBSCRIPTION_REQUIRED, ACCOUNT_BLOCKED]
               creditsRequired: { type: integer }
               creditsAvailable: { type: integer }
               topUpUrl: { type: string }
@@ -4012,6 +4182,12 @@ components:
                 description: |
                   Present when `code` is `BUDGET_EXCEEDED`. Names of the
                   exhausted credit budgets blocking this run.
+              reason:
+                type: string
+                enum: [payment_failed, spend_limit_reached, settlement_pending]
+                description: |
+                  Present when `code` is `ACCOUNT_BLOCKED`. Why the account is
+                  settlement-blocked at admission.
               message: { type: string }
               hint: { type: string }
           examples:
@@ -4028,7 +4204,7 @@ components:
                 error: Budget exceeded
                 code: BUDGET_EXCEEDED
                 blockedByBudgets: ["Marketing Q3"]
-                message: "This run is blocked by the credit budget Marketing Q3 — the spending limit has been reached. Increase the budget limit, wait for it to reset, or remove it."
+                message: "This run is blocked by the credit budget Marketing Q3: the spending limit has been reached. Increase the budget limit, wait for it to reset, or remove it."
     AgentBusy:
       description: A run is already in flight on this agent
       content:
@@ -4087,7 +4263,7 @@ components:
                   error: Run not found
                   code: RUN_NOT_FOUND
     ProjectNotFound:
-      description: Project not found (unknown, cross-parent, or deleted — no existence leak)
+      description: Project not found (unknown, cross-parent, or deleted; no existence leak)
       content:
         application/json:
           schema:

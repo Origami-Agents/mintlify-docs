@@ -6,7 +6,7 @@ info:
     > **Deprecated.** v1 is superseded by the canonical
     > [v2 API](./openapi-v2) (five segments: Projects, Agents, Workspace,
     > Outreach, Account). v1 remains fully functional with **no removal date in this
-    > release** — but new integrations should target v2. See the
+    > release**, but new integrations should target v2. See the
     > [v1 → v2 migration guide](./api-v1-to-v2-migration): `GET /tables` →
     > `GET /api/v2/tables`, `GET /tables/:id/rows` →
     > `GET /api/v2/tables/:tableId/rows`, `POST /tables/:id/rows` →
@@ -17,7 +17,7 @@ info:
     The Origami API lets you enrich company and people data programmatically.
     See the [Quickstart](/quickstart) for a walkthrough with curl examples.
 
-    All write endpoints are **asynchronous** — a `POST` returns a `batchId` immediately.
+    All write endpoints are **asynchronous**: a `POST` returns a `batchId` immediately.
     Poll `GET /batches/{batchId}` for progress and enriched results.
 
     ## Rate limits
@@ -37,7 +37,7 @@ info:
     ## Request IDs
 
     Every response includes an `X-Request-Id` header. You can pass your own ID
-    via the `X-Request-Id` request header (1–64 alphanumeric / dash / underscore
+    via the `X-Request-Id` request header (1-64 alphanumeric / dash / underscore
     characters); otherwise the server generates a UUID. Include this ID in support
     requests to help us trace issues.
 
@@ -58,10 +58,14 @@ info:
     |------|--------|---------|
     | `UNAUTHORIZED` | 401 | Missing, invalid, revoked, or expired API key. |
     | `VALIDATION_ERROR` | 400 | Invalid request parameter or body. |
+    | `INVALID_FILTERS` | 400 | Malformed `filters` query parameter on `GET /tables/{tableId}/rows`. |
+    | `INVALID_SORT` | 400 | Malformed `sort` query parameter on `GET /tables/{tableId}/rows`. |
+    | `UNKNOWN_COLUMN` | 400 | A `filters` or `sort` entry references a column slug that does not exist. |
+    | `FORBIDDEN` | 403 | The provided `batchId` belongs to another organization. |
     | `NOT_FOUND` | 404 | Table or batch not found. |
-    | `RATE_LIMITED` | 429 | Too many requests — see rate-limit headers. |
-    | `INSUFFICIENT_CREDITS` | 402 | Not enough credits to complete the operation. |
+    | `RATE_LIMITED` | 429 | Too many requests: see rate-limit headers. |
     | `SUBSCRIPTION_REQUIRED` | 402 | Feature requires a plan upgrade. |
+    | `INSUFFICIENT_CREDITS` | 402 | Not returned as a synchronous top-level error; surfaces inside a batch's `failures.insufficientCredits`. |
     | `INTERNAL_ERROR` | 500 | Unexpected server error. |
 
     ## Webhooks
@@ -102,7 +106,7 @@ paths:
       summary: List tables
       description: |
         Returns all tables in the organization with column metadata.
-        The API key scopes to the org — no workspace ID needed.
+        The API key scopes to the org; no workspace ID needed.
 
         The typical workflow is: list tables → find the one you want by name → note its
         input columns → use the `tableId` and column slugs in `POST /tables/{tableId}/rows`.
@@ -167,6 +171,8 @@ paths:
                 pageSize: 50
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/SubscriptionRequired"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -297,6 +303,8 @@ paths:
                     operators: ["bad_operator"]
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/SubscriptionRequired"
         "404":
           $ref: "#/components/responses/TableNotFound"
         "429":
@@ -308,18 +316,21 @@ paths:
       operationId: insertRows
       summary: Insert rows
       description: |
-        Insert rows into an existing table. Returns a batch ID immediately — poll
+        Insert rows into an existing table. Returns a batch ID immediately; poll
         `GET /batches/{batchId}` for enrichment progress and results.
 
         **Column matching:** Field names in each row object are matched to **input** columns
-        by **slug** (exact match). Only columns with `kind: "input"` are accepted —
+        by **slug** (exact match). Only columns with `kind: "input"` are accepted;
         enrichment and score columns are populated automatically. Use `GET /tables` to
         discover available column slugs and their kinds.
 
         **Enrichment:** By default (`enrich: true`), all auto-trigger enrichment columns run
         immediately after insertion. Set `enrich: false` to insert data without triggering enrichment.
 
-        **Deduplication & exclusion lists** apply automatically — the same table-level rules
+        **Credits:** Credit shortfalls do not fail the insert synchronously; they surface later
+        in the batch's `failures.insufficientCredits` (poll `GET /batches/{batchId}`).
+
+        **Deduplication & exclusion lists** apply automatically; the same table-level rules
         from the UI are enforced. Duplicate or excluded rows are inserted but may not enrich.
 
         **Limits:**
@@ -360,7 +371,7 @@ paths:
       responses:
         "200":
           description: |
-            Idempotent replay — a batch with the provided `batchId` already exists.
+            Idempotent replay: a batch with the provided `batchId` already exists.
             The original batch ID is returned without inserting new rows.
           content:
             application/json:
@@ -368,6 +379,7 @@ paths:
                 $ref: "#/components/schemas/BatchCreated"
               example:
                 batchId: "550e8400-e29b-41d4-a716-446655440000"
+                tableRunId: "0b8ac9a5-2f6e-4a52-9d5c-6a1f0f1f2a3b"
         "201":
           description: Rows accepted for processing.
           content:
@@ -376,6 +388,7 @@ paths:
                 $ref: "#/components/schemas/BatchCreated"
               example:
                 batchId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                tableRunId: "0b8ac9a5-2f6e-4a52-9d5c-6a1f0f1f2a3b"
         "400":
           description: Validation error.
           content:
@@ -414,7 +427,17 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "402":
-          $ref: "#/components/responses/PaymentRequired"
+          $ref: "#/components/responses/SubscriptionRequired"
+        "403":
+          description: The provided `batchId` already exists under a different organization.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "Batch belongs to a different organization"
+                code: "FORBIDDEN"
+                message: "The provided batchId is already in use by another organization."
         "404":
           $ref: "#/components/responses/TableNotFound"
         "429":
@@ -430,7 +453,7 @@ paths:
         Check the status of an async batch. When all enrichments are complete, the
         response includes the full enriched row data and total credits used.
 
-        A batch is `"complete"` when every enrichment has reached a terminal state —
+        A batch is `"complete"` when every enrichment has reached a terminal state;
         this includes both succeeded and failed runs. Check `enrichments.failed > 0`
         to detect partial failures.
 
@@ -440,8 +463,8 @@ paths:
         result payloads stay bounded; if that limit increases in the future, pagination
         may be introduced for this field.
 
-        **Polling strategy:** For fast results, poll every 2–5 seconds. For background
-        processing, poll every 30–60 seconds.
+        **Polling strategy:** For fast results, poll every 2-5 seconds. For background
+        processing, poll every 30-60 seconds.
       tags: [Batches]
       parameters:
         - name: batchId
@@ -548,6 +571,8 @@ paths:
                 code: "VALIDATION_ERROR"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/SubscriptionRequired"
         "404":
           description: Batch not found.
           content:
@@ -581,6 +606,8 @@ paths:
                 currency: "credits"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "402":
+          $ref: "#/components/responses/SubscriptionRequired"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -708,9 +735,9 @@ components:
           enum: [input, enrichment, score]
           description: |
             Column type:
-            - `input` — user-provided data (e.g. company name, website)
-            - `enrichment` — auto-populated by Origami enrichment services
-            - `score` — computed quality/relevance score
+            - `input`: user-provided data (e.g. company name, website)
+            - `enrichment`: auto-populated by Origami enrichment services
+            - `score`: computed quality/relevance score
         autoTrigger:
           type: boolean
           description: |
@@ -755,7 +782,7 @@ components:
           description: |
             Whether to trigger enrichment after inserting rows.
             Defaults to `true`. Set to `false` to insert data without
-            running enrichment — the batch will immediately be `"complete"`.
+            running enrichment; the batch will immediately be `"complete"`.
         batchId:
           type: string
           format: uuid
@@ -768,7 +795,7 @@ components:
 
     BatchCreated:
       type: object
-      required: [batchId]
+      required: [batchId, tableRunId]
       properties:
         batchId:
           type: string
@@ -776,6 +803,16 @@ components:
           description: |
             Unique identifier for the batch. Use this to poll `GET /batches/{batchId}`
             for progress and results.
+        tableRunId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Parent table-run for an `enrich=true` batch; `null` for
+            `enrich=false` inserts, pre-migration batches, and the rare setup
+            failure where no run was created. Correlates the
+            `table.run.completed` webhook (its `data.run_id`) and the durable
+            status read `GET /api/v2/tables/{tableId}/runs/{tableRunId}`.
 
     Batch:
       type: object
@@ -795,9 +832,9 @@ components:
           type: string
           enum: [processing, complete, errored]
           description: |
-            - `processing` — enrichment is still running
-            - `complete` — all enrichments finished (check `enrichments.failed` for partial failures)
-            - `errored` — the batch failed to start (e.g. enrichment pipeline error)
+            - `processing`: enrichment is still running
+            - `complete`: all enrichments finished (check `enrichments.failed` for partial failures)
+            - `errored`: the batch failed to start (e.g. enrichment pipeline error)
         rowCount:
           type: integer
           description: |
@@ -819,7 +856,7 @@ components:
             $ref: "#/components/schemas/Row"
           description: |
             Enriched row data. Only present when `status` is `"complete"`.
-            Row keys are column slugs — use the `columns` map to resolve display names.
+            Row keys are column slugs; use the `columns` map to resolve display names.
             All rows for the batch are returned in one response (see operation description
             for the relationship to per-request insert limits).
         failures:
@@ -952,6 +989,16 @@ components:
                 error: "Subscription required"
                 code: "SUBSCRIPTION_REQUIRED"
                 hint: "Upgrade to a Growth or Business plan to use this feature."
+    SubscriptionRequired:
+      description: Feature requires a plan upgrade.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "Subscription required"
+            code: "SUBSCRIPTION_REQUIRED"
+            hint: "Upgrade to a Growth or Business plan to use this feature."
     InternalError:
       description: Unexpected server error.
       content:
@@ -967,39 +1014,39 @@ components:
         X-RateLimit-Limit-IP:
           schema:
             type: integer
-          description: IP bucket — maximum requests allowed in the window.
+          description: "IP bucket: maximum requests allowed in the window."
         X-RateLimit-Remaining-IP:
           schema:
             type: integer
-          description: IP bucket — requests remaining in the current window.
+          description: "IP bucket: requests remaining in the current window."
         X-RateLimit-Reset-IP:
           schema:
             type: integer
-          description: IP bucket — Unix timestamp when the window resets.
+          description: "IP bucket: Unix timestamp when the window resets."
         X-RateLimit-Limit-Global:
           schema:
             type: integer
-          description: Organization bucket — maximum requests allowed in the window.
+          description: "Organization bucket: maximum requests allowed in the window."
         X-RateLimit-Remaining-Global:
           schema:
             type: integer
-          description: Organization bucket — requests remaining in the current window.
+          description: "Organization bucket: requests remaining in the current window."
         X-RateLimit-Reset-Global:
           schema:
             type: integer
-          description: Organization bucket — Unix timestamp when the window resets.
+          description: "Organization bucket: Unix timestamp when the window resets."
         X-RateLimit-Limit-Insert:
           schema:
             type: integer
-          description: Insert bucket — maximum requests allowed in the window (write routes only).
+          description: "Insert bucket: maximum requests allowed in the window (write routes only)."
         X-RateLimit-Remaining-Insert:
           schema:
             type: integer
-          description: Insert bucket — requests remaining in the current window.
+          description: "Insert bucket: requests remaining in the current window."
         X-RateLimit-Reset-Insert:
           schema:
             type: integer
-          description: Insert bucket — Unix timestamp when the window resets.
+          description: "Insert bucket: Unix timestamp when the window resets."
       content:
         application/json:
           schema:
