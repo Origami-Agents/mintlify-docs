@@ -4,8 +4,9 @@ info:
   version: "2.0"
   description: |
     The Origami **v2 API** is the single canonical public surface,
-    organized into five segments: **Projects** (tenancy), **Agents**,
-    **Workspace**, **Outreach** (campaigns, sequences, steps), and
+    organized into six segments: **Projects** (tenancy), **Agents**,
+    **Workspace**, **Outreach** (campaigns, sequences, steps),
+    **Senders** (the connected sending-account roster), and
     **Account**. Drive AI workers from a prompt, read and write table
     data (rows, cells, upsert, enrichment runs), manage documents and
     workspaces, control the sequencer and campaigns, run recurring
@@ -192,6 +193,8 @@ tags:
     description: 'First-class outreach campaigns: list, get, read people + stats, create + edit (agentic), launch/pause/resume, delete.'
   - name: Sequences
     description: Read per-recipient sequences (with steps inline), stop and delete them. Content edits go through the agentic campaign edit.
+  - name: Senders
+    description: 'The org''s connected sending-account roster (email + LinkedIn): stable ids, channel, provider source, DFY provenance.'
   - name: Scheduled agents
     description: 'Recurring agents (cron): CRUD, enable/disable, trigger, run history.'
   - name: Account
@@ -1054,10 +1057,14 @@ paths:
           name: filters
           description: |
             JSON array of `{ column, operator, value }` filters. `column` is
-            an input-column slug; operators: `contains`, `not_contains`,
+            an input-column slug, or one of the row-level fields
+            (`relevance_score`, `duplicates`, `excluded`, `disapproved`,
+            `triage_state`); operators: `contains`, `not_contains`,
             `equals`, `not_equals`, `is_empty`, `is_not_empty`,
             `greater_than`, `greater_than_or_equal`, `less_than`,
             `less_than_or_equal`. Unknown columns → `UNKNOWN_COLUMN`.
+            Supplying this replaces the table's saved filters entirely, even
+            when the array is empty.
           schema: { type: string }
         - in: query
           name: sort
@@ -1073,8 +1080,20 @@ paths:
           schema: { type: string, enum: [csv] }
         - in: query
           name: defaults
-          description: Pass `false` to disable the table's default filters/sort.
-          schema: { type: string, enum: ['true', 'false'] }
+          description: |
+            Whether to apply the table's saved filters and sort order - the same
+            ones shown in the Origami dashboard. Defaults to `true`. Most tables
+            carry a quality filter that hides disqualified rows, so this is
+            usually the difference between the dashboard's row count and the
+            full table. Pass `false` to get every row, in insertion order.
+
+            Duplicate, excluded and removed rows are hidden by default on every
+            read; `defaults=false` does not surface them. Include them with an
+            explicit filter
+            (`{"column":"duplicates","operator":"equals","value":"include"}`,
+            likewise `excluded` and `disapproved`), or leave `defaults=true` on
+            a table whose saved view already unhides them.
+          schema: { type: string, enum: ['true', 'false'], default: 'true' }
       responses:
         '200':
           description: A page of rows (list envelope + `total`).
@@ -1091,7 +1110,12 @@ paths:
                         items: { $ref: '#/components/schemas/Row' }
                       total:
                         type: integer
-                        description: Total row count for the query's scope (all pages).
+                        description: |
+                          Total row count for the query's scope (all pages) -
+                          i.e. after the request's filters, or the table's saved
+                          filters when `defaults` is left on, and always after
+                          the invariant hiding of duplicate, excluded and
+                          removed rows.
             text/csv:
               schema: { type: string }
         '400': { description: 'INVALID_FILTERS / INVALID_SORT / UNKNOWN_COLUMN / VALIDATION_ERROR.' }
@@ -1602,7 +1626,7 @@ paths:
       description: |
         Deprecated alias for `POST /tables/{tableId}/campaigns`; identical
         body and responses (agentic campaign creation from
-        `{ instructions }`, `202` with `{ agent, run, table }`).
+        `{ instructions, autoLeadRefillEnabled? }`, `202` with `{ agent, run, table }`).
       operationId: createTableSequence
       x-mint:
         href: /agents/reference/create-sequence-legacy
@@ -1621,6 +1645,20 @@ paths:
                   minLength: 1
                   maxLength: 10000
                   description: Free-form description of the campaign to draft.
+                autoLeadRefillEnabled:
+                  type: boolean
+                  description: >-
+                    Auto Lead Refill at birth. Defaults ON when omitted.
+                    Pass false to create the campaign without daily sourcing.
+                    Applied to the created campaign as the run settles;
+                    read settings.autoLeadRefillEnabled on the campaign to
+                    confirm the value before launching.
+                autoTopUpEnabled:
+                  type: boolean
+                  deprecated: true
+                  description: >-
+                    Pre-rename spelling of autoLeadRefillEnabled. Still
+                    accepted; autoLeadRefillEnabled wins when both are sent.
       responses:
         '202': { description: '{ agent, run, table }: run admitted, work runs in background.' }
         '400': { description: VALIDATION_ERROR. }
@@ -1778,10 +1816,13 @@ paths:
       tags: [Campaigns]
       summary: Create a campaign on a table (agentic)
       description: |
-        Agentic campaign creation. Minimal body `{ instructions }`: no
-        column or channel; campaigns can be multi-channel and the agent
-        infers the rest from the instructions and the table. Delegates to
-        the chat agent via the v2 run path and responds `202 Accepted` with
+        Agentic campaign creation. Body `{ instructions, autoLeadRefillEnabled? }`:
+        no column or channel; campaigns can be multi-channel and the agent
+        infers the rest from the instructions and the table. Auto Lead Refill
+        defaults ON (a campaign that never refills runs dry); pass
+        `autoLeadRefillEnabled: false` to create without daily sourcing —
+        same field as `PATCH /campaigns/{campaignId}`. Delegates to the
+        chat agent via the v2 run path and responds `202 Accepted` with
         `{ agent, run, table }` (poll `GET /agents/{agentId}/runs/{runId}`
         for progress/result). The agent creates the campaign and drafts its
         sequences (it does not send); once the run completes, the drafted
@@ -1806,6 +1847,20 @@ paths:
                   minLength: 1
                   maxLength: 10000
                   description: Free-form description of the campaign to draft.
+                autoLeadRefillEnabled:
+                  type: boolean
+                  description: >-
+                    Auto Lead Refill at birth. Defaults ON when omitted.
+                    Pass false to create the campaign without daily sourcing.
+                    Applied to the created campaign as the run settles;
+                    read settings.autoLeadRefillEnabled on the campaign to
+                    confirm the value before launching.
+                autoTopUpEnabled:
+                  type: boolean
+                  deprecated: true
+                  description: >-
+                    Pre-rename spelling of autoLeadRefillEnabled. Still
+                    accepted; autoLeadRefillEnabled wins when both are sent.
       responses:
         '202':
           description: Run admitted; the agent drafts the campaign in the background.
@@ -1844,6 +1899,55 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Campaign' }
+        '404': { description: CAMPAIGN_NOT_FOUND. }
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign settings (Auto Lead Refill)
+      description: |
+        Deterministic settings patch. Currently the only writable field is
+        Auto Lead Refill (`autoLeadRefillEnabled`) — a spend/lifecycle
+        toggle, not content. Returns the updated Campaign object.
+
+        Turning refill **on** on an active campaign arms the daily sourcing
+        task and clears a prior Origami auto-stop. It clears a billing pause
+        (out of credits / spend limit) too, but funding is what resumes
+        sourcing: an unfunded account re-pauses on the next run. Turning it
+        **off** unarms the task. The intent flag survives pause and draft;
+        the task only runs while the campaign is `active`.
+
+        Turning refill off does **not** cancel a refill run already in
+        flight — that batch finishes, capped by the task's per-run budget.
+
+        Duplicate-protection, send windows, daily caps, and message
+        content stay out of this body: change those through
+        `POST /campaigns/{campaignId}/edits`.
+      operationId: patchCampaign
+      x-mint:
+        href: /agents/reference/update-campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                autoLeadRefillEnabled: { type: boolean }
+                autoTopUpEnabled:
+                  type: boolean
+                  deprecated: true
+                  description: >-
+                    Pre-rename spelling of autoLeadRefillEnabled. Still
+                    accepted; autoLeadRefillEnabled wins when both are sent.
+              description: At least one of autoLeadRefillEnabled / autoTopUpEnabled is required.
+      responses:
+        '200':
+          description: The updated Campaign object.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { description: VALIDATION_ERROR. }
         '404': { description: CAMPAIGN_NOT_FOUND. }
     delete:
       tags: [Campaigns]
@@ -2078,7 +2182,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
         '404': { description: CAMPAIGN_NOT_FOUND. }
-        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry.' }
+        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
   /campaigns/{campaignId}/send:
     parameters:
       - $ref: '#/components/parameters/CampaignId'
@@ -2113,7 +2217,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
         '404': { description: CAMPAIGN_NOT_FOUND. }
-        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry.' }
+        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
   /campaigns/{campaignId}/pause:
     parameters:
       - $ref: '#/components/parameters/CampaignId'
@@ -2183,7 +2287,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldResume: { type: boolean }
         '404': { description: CAMPAIGN_NOT_FOUND. }
-        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry.' }
+        '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
 
   # ── Scheduled agents segment ─────────────────────────────────────
   /scheduled-agents:
@@ -2248,6 +2352,7 @@ paths:
                 enabled: { type: boolean }
                 description: { type: string, nullable: true }
                 model: { type: string, nullable: true }
+                budgetCredits: { type: integer, nullable: true, minimum: 1, maximum: 2147483647, description: 'Hard per-run credit cap (whole credits); each run stops spending once it hits it. Omit or null for no cap.' }
                 slug: { type: string, minLength: 1, maxLength: 60 }
       responses:
         '201':
@@ -2293,6 +2398,7 @@ paths:
                 cron: { type: string }
                 model: { type: string }
                 enabled: { type: boolean }
+                budgetCredits: { type: integer, nullable: true, minimum: 1, maximum: 2147483647, description: 'Hard per-run credit cap (whole credits); pass null to remove the cap.' }
       responses:
         '200':
           description: The updated scheduled agent.
@@ -2301,6 +2407,7 @@ paths:
               schema: { $ref: '#/components/schemas/ScheduledAgent' }
         '400': { description: 'VALIDATION_ERROR; INVALID_CRON; CRON_TOO_FREQUENT.' }
         '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
+        '409': { description: 'CAMPAIGN_MANAGED: campaign-linked scheduled agents accept only budgetCredits here; manage everything else through the campaign.' }
     delete:
       tags: [Scheduled agents]
       summary: Delete a scheduled agent (soft-delete)
@@ -2570,6 +2677,69 @@ paths:
           $ref: '#/components/responses/ProjectNotFound'
 
   # ── Account segment ──────────────────────────────────────────────
+  /senders:
+    get:
+      tags: [Senders]
+      summary: List the org's connected sending accounts (cursor-paginated)
+      description: |
+        Every connected email + LinkedIn account with its stable `id` - the
+        same id sequence objects carry as `senderId` and webhook payloads
+        carry as `sender.id`. Senders are org-level (a mailbox is not homed
+        in a workspace); `campaignId` narrows to the senders bound to that
+        campaign's live sequences ("who does this campaign send from?").
+        Defaults to every status except `disconnected` (removed accounts);
+        pass an explicit `status` list to override.
+      operationId: listSenders
+      x-mint:
+        href: /agents/reference/list-senders
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - in: query
+          name: channel
+          schema: { type: string, enum: [email, linkedin] }
+        - in: query
+          name: campaignId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: status
+          description: 'CSV of statuses to include (e.g. `active,needs_reauth`).'
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of senders in the canonical list envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ListEnvelope'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Sender' }
+        '400': { description: VALIDATION_ERROR. }
+        '404': { description: CAMPAIGN_NOT_FOUND (unknown `campaignId`). }
+  /senders/{senderId}:
+    get:
+      tags: [Senders]
+      summary: Get one sender by its stable id
+      operationId: getSender
+      x-mint:
+        href: /agents/reference/get-sender
+      parameters:
+        - in: path
+          name: senderId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The sender.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sender' }
+        '404': { description: SENDER_NOT_FOUND. }
   /account:
     get:
       tags: [Account]
@@ -3082,7 +3252,7 @@ components:
             skipped: { type: integer }
     Campaign:
       type: object
-      required: [object, id, slug, name, status, workspaceId, tableId, channels, settings, brief, outOfLeads, createdAt, updatedAt]
+      required: [object, id, slug, name, status, workspaceId, tableId, channels, settings, brief, outOfLeads, haltedCount, createdAt, updatedAt]
       description: |
         A first-class `campaigns` row: org-global, homed in a workspace.
         Its queue is the set of sequences stamped with its id (one sequence
@@ -3117,16 +3287,37 @@ components:
             linkedin: { type: boolean }
         settings:
           type: object
-          required: [blockActiveDuplicates, blockPriorContacts, autoTopUpEnabled]
-          description: Auto-cancel toggles + auto-refill, surfaced read-only.
+          required: [blockActiveDuplicates, blockPriorContacts, autoLeadRefillEnabled, autoTopUpEnabled]
+          description: Auto-cancel toggles (read-only on this object) + Auto Lead Refill (writable via PATCH /campaigns/{campaignId}).
           properties:
             blockActiveDuplicates: { type: boolean }
             blockPriorContacts: { type: boolean }
-            autoTopUpEnabled: { type: boolean }
+            autoLeadRefillEnabled: { type: boolean }
+            autoTopUpEnabled:
+              type: boolean
+              deprecated: true
+              description: >-
+                Pre-rename mirror of autoLeadRefillEnabled, always equal to it.
+                Kept so clients written against the old name keep working; read
+                autoLeadRefillEnabled in new code.
         brief:
           description: Agent-authored brief (audience prose + estimated size); null before drafting.
           nullable: true
         outOfLeads: { type: boolean }
+        haltedCount:
+          type: integer
+          minimum: 0
+          description: >-
+            How many of an active campaign's people a disconnected sender
+            stopped rather than their finishing. Reported for every active
+            campaign, so it can be above zero while the campaign is still
+            sending to everyone else; combine it with outOfLeads to read the
+            campaign's end state. outOfLeads alone cannot tell a campaign that
+            completed from one that was cut short, since both have nothing
+            pending: outOfLeads with haltedCount above zero means the campaign
+            ended early, and reconnecting the sender resumes those people while
+            adding leads will not reach them. Zero for draft and paused
+            campaigns.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     CampaignSummary:
@@ -3146,7 +3337,7 @@ components:
           description: 'Live enrolled sequences (people): non-deleted, non-cancelled.'
     CampaignPerson:
       type: object
-      required: [object, sequenceId, rowId, recipient, sendStatus, stopReason, profile, fitExplanation, fitScore, addedAt]
+      required: [object, sequenceId, rowId, recipient, sendStatus, stopReason, senderId, senders, profile, fitExplanation, fitScore, addedAt]
       description: |
         One person (enrolled sequence) in a campaign: the People-tab row
         shape. Returned by `GET /campaigns/{campaignId}/people` and its
@@ -3160,6 +3351,15 @@ components:
           type: string
           description: Aggregate send-status pill (draft / scheduled / sent / replied / …).
         stopReason: { type: string, nullable: true }
+        senderId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Stable id of the primary bound sender (email wins on mixed sequences) - joinable against `GET /senders` and webhook `sender.id`. Null until a sender is bound (senders bind per sequence, not per campaign).
+        senders:
+          type: array
+          description: Every sender bound to this person's sequence, one per channel.
+          items: { $ref: '#/components/schemas/SequenceSenderRef' }
         profile:
           nullable: true
           description: Agent-injected identity (name / title / company / linkedin / website).
@@ -3313,7 +3513,7 @@ components:
             rows: { type: integer }
     SequenceSummary:
       type: object
-      required: [object, id, sequenceId, campaignId, status, stopReason, sendStatus, tableId, columnId, rowId, workspaceId, url]
+      required: [object, id, sequenceId, campaignId, status, stopReason, sendStatus, senderId, senders, tableId, columnId, rowId, workspaceId, url]
       properties:
         object: { type: string, const: sequence }
         id: { type: string, format: uuid }
@@ -3329,6 +3529,15 @@ components:
         status: { type: string }
         stopReason: { type: string, nullable: true }
         sendStatus: { type: string, nullable: true }
+        senderId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Stable id of the primary bound sender (email wins on mixed sequences) - joinable against `GET /senders` and webhook `sender.id`. Null until a sender is bound.
+        senders:
+          type: array
+          description: Every sender bound to this sequence, one per channel.
+          items: { $ref: '#/components/schemas/SequenceSenderRef' }
         tableId: { type: string, format: uuid, nullable: true }
         columnId: { type: string, format: uuid, nullable: true }
         rowId: { type: string, format: uuid, nullable: true }
@@ -3352,6 +3561,58 @@ components:
             steps:
               type: array
               items: { $ref: '#/components/schemas/SequenceStep' }
+    SequenceSenderRef:
+      type: object
+      required: [id, channel, label, status]
+      description: |
+        A sending account bound to a sequence. `id` is the stable sender id
+        (join it against `GET /senders` for the full identity); `label` is the
+        email address (email) or LinkedIn slug (linkedin).
+      properties:
+        id: { type: string, format: uuid }
+        channel: { type: string, enum: [email, linkedin] }
+        label: { type: string }
+        status: { type: string }
+    Sender:
+      type: object
+      required: [object, id, channel, displayName, email, linkedinSlug, linkedinUrl, source, origamiOrigin, status, createdAt]
+      description: |
+        A connected sending account (the roster entry `GET /senders`
+        returns). `id` is stable and is the join key across the API:
+        sequence objects carry it as `senderId` and webhook payloads as
+        `sender.id`.
+      properties:
+        object: { type: string, const: sender }
+        id: { type: string, format: uuid }
+        channel: { type: string, enum: [email, linkedin] }
+        displayName:
+          type: string
+          nullable: true
+          description: Human name where known (from-name / LinkedIn profile name); falls back to the email address / slug.
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Mailbox address. Null for LinkedIn senders.
+        linkedinSlug:
+          type: string
+          nullable: true
+          description: LinkedIn vanity slug (public identifier). Null for email senders.
+        linkedinUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Full LinkedIn profile URL derived from the slug.
+        source:
+          type: string
+          description: 'Normalized provider: gmail | outlook | smtp | linkedin.'
+        origamiOrigin:
+          type: boolean
+          description: True when Origami provisioned this account (done-for-you inboxes); false for accounts the user connected themselves.
+        status:
+          type: string
+          description: active | needs_reauth | provisioning | reconnecting | error | disconnected.
+        createdAt: { type: string, format: date-time }
     SequenceStep:
       type: object
       required: [object, id, stepId, channel, kind, status, subject, body, recipient, scheduledAt, sentAt]
@@ -3374,7 +3635,7 @@ components:
         sentAt: { type: string, format: date-time, nullable: true }
     ScheduledAgent:
       type: object
-      required: [object, id, workspaceId, slug, name, description, prompt, cron, model, enabled, planBlocked, nextRunAt, lastRunAt, url]
+      required: [object, id, workspaceId, slug, name, description, prompt, cron, model, enabled, budgetCredits, planBlocked, nextRunAt, lastRunAt, url]
       properties:
         object: { type: string, const: scheduled_agent }
         id: { type: string, format: uuid }
@@ -3391,6 +3652,15 @@ components:
         cron: { type: string }
         model: { type: string, nullable: true }
         enabled: { type: boolean }
+        budgetCredits:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: >-
+            Hard per-run credit budget (whole credits). Each run of this agent is
+            capped at this many credits and stops spending once it hits it. Null
+            means no cap. Size it to comfortably cover the leads a run is expected
+            to fetch (cost-per-lead × expected leads, plus margin).
         planBlocked:
           type: boolean
           description: True when the org cannot currently run scheduled tasks (gated at dispatch).
@@ -3429,13 +3699,21 @@ components:
               description: null = unlimited.
         workspaces:
           type: object
+          deprecated: true
+          description: >-
+            Deprecated. The per-plan workspace cap has been retired and is no
+            longer enforced, so `limit` is always null. `used` counts legacy
+            workspace containers only, not the session containers `POST
+            /workspaces` now mints.
           required: [used, limit]
           properties:
             used: { type: integer }
             limit:
-              type: integer
-              nullable: true
-              description: null = unlimited.
+              type: "null"
+              description: >-
+                Always null - the workspace cap is retired, not merely
+                unlimited. Typed null-only so generated clients do not carry a
+                numeric branch that can never be taken.
     Credits:
       type: object
       required: [object, balance, currency]
