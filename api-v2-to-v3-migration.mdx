@@ -1,0 +1,90 @@
+---
+title: "Migrate from v2 to v3"
+description: "Map v2 agent-and-run flows to v3 named operations and the shared Job."
+---
+
+v3 (`/api/v3`) replaces "one prompt endpoint + a fat run object" with **named,
+typed operations** in three sections (Account, Leads, Send) and **one shared
+Job** for all async work. v1 and v2 keep working with the same keys — nothing
+you run today breaks — but new integrations should target v3 only.
+
+## The shape change
+
+In v2 you `POST /agents` with a prompt, poll a run object with eight statuses,
+then separately wait out the cell pipeline. In v3 you call the operation you
+mean (`leads.searches.create`, `send.campaigns.launch`, …). Async operations
+return a **Job** that stays `running` (with `phase: "enriching"`) until the work
+*including enrichment* is done, so `succeeded` means the result counts are
+final.
+
+AGENT-tagged operations still run the Origami agent under the hood — the brief
+is still the steer — but as a tag on specific operations, not the whole API.
+
+## Flow map
+
+| v2 flow | v3 |
+| --- | --- |
+| `POST /agents` + "find me leads …" | One-shot: `POST /leads/searches { brief, count, quality }`. List-first: `POST /leads/lists` + column ops, then `POST /leads/lists/{list_id}/fetch` |
+| `POST /agents/{id}/runs` + "get more" | `POST /leads/searches/{search_id}/fetch-more { count }` (deterministic — no prompt) |
+| `POST /agents/{id}/runs` + "enrich …" | `POST /leads/lists/{list_id}/enrich { column_slugs }` or `POST /leads/lists/{list_id}/enrich_custom { instructions }` |
+| Run polling `GET /agents/{id}/runs/{runId}` | `GET /jobs/{job_id}` (honor `next_poll_at`) or `job.*` webhooks |
+| `runs.status: needs_input` → new run with the answer | `POST /jobs/{job_id}/input { answers }` — same Job id resumes |
+| `POST /tables/{tableId}/rows/upsert` | `POST /leads/lists/{list_id}/rows/upsert` — same semantics, snake_case, embedded `enrichment_job` |
+| `GET /tables/{tableId}/rows` | `GET /leads/lists/{list_id}/rows` with `min_relevance_score`, `sort`, `include_*`, `ids`, `format=csv` |
+| `POST /tables/{tableId}/campaigns` (agent) | Deterministic recipe: `POST /send/campaigns` → schema → people → templates → settings → senders → approvals → launch. Agent shortcut: `POST /send/campaigns/draft` |
+| `POST /campaigns/{id}/edits` + instructions | Named ops: people upsert / template variant ops / `PATCH .../settings` / sender pool ops |
+| `POST /campaigns/{id}/launch` | `POST /send/campaigns/{campaign_id}/launch` — real `dry_run`, typed 409 blockers |
+| `GET /senders` | `GET /account/senders` + manage ops (patch, IMAP connect, warmup, disconnect) |
+| `GET /account`, `/account/credits` | Same, plus `/account/credits/usage` and `/account/rate-limits` |
+| `GET /projects` … | `/account/projects` … |
+| Workspaces / `workspaceId` | Gone from v3. Chats (`/account/chats`) are the conversation container; lists and campaigns are org-scoped and linked to chats |
+
+## Renames and status folding
+
+- `AGENT_BUSY` → **`CHAT_BUSY`** (same 409, same per-session mutex; now carries
+  the blocking `details.job_id`).
+- `NO_SENDING_ACCOUNT` → **`ACCOUNT_CONNECTION_REQUIRED`** (and
+  `ACCOUNT_RECONNECT_REQUIRED` when senders exist but all need reauth).
+- `ROW_LIMIT_EXCEEDED` — unchanged.
+
+v2's eight run statuses fold into six Job statuses. The recoverable ones
+survive as `failed` + `error.code`:
+
+| v2 run status | v3 Job |
+| --- | --- |
+| `completed` | `succeeded` |
+| `incomplete` | `failed`, `error.code: "AGENT_INCOMPLETE"`, `details.retryable: true` |
+| `step_cap_hit` | `failed`, `error.code: "AGENT_STEP_CAP"`, `details.retryable: true` |
+| `timed_out` | `failed`, `error.code: "AGENT_TIMED_OUT"`, `details.retryable: true` |
+| `errored` | `failed`, `error.code: "AGENT_ERRORED"`, `details.retryable: false` |
+| `cancelled` | `cancelled` (partial result kept, `result.partial: true`) |
+| `needs_input` | `needs_input` — durable and webhook-emitting |
+| `running` | `running` (stays running through enrichment) |
+
+## Wire differences
+
+- **snake_case** everywhere (v2 is camelCase; the list envelope key is
+  `next_cursor`, not `nextCursor`).
+- **Strict inputs**: unknown fields are `400 VALIDATION_ERROR` — a camelCase
+  body fails loudly instead of being silently stripped.
+- Errors are a closed envelope `{ error, code, details?, handoff? }` — v2's
+  extra 402 top-level keys (`creditsRequired`, `topUpUrl`, …) moved into
+  `details` / `handoff`.
+- Invalid cursors and out-of-range limits are 400s (v2 silently restarted /
+  clamped).
+- Idempotency conflicts split: `IDEMPOTENCY_MISMATCH` (caller bug) vs
+  `IDEMPOTENCY_PENDING` (transient, retry after `Retry-After`).
+- Rate-limit headers: v3's org bucket suffix is `Org`
+  (`X-RateLimit-Limit-Org`); v1/v2 keep `Global`. Same underlying buckets —
+  traffic on both versions shares one allowance.
+- Keys now carry a **role** (existing keys were backfilled to `admin`; new keys
+  default to `member`). Admin-gated Account ops return `403` for member keys.
+
+## New in v3
+
+Job webhooks (`job.*`) and client `metadata` correlation · `result.row_ids` +
+rows `ids` filter (the CRM-sync loop) · cross-list dedup (`exclude_list_ids`) ·
+pool depth (`remaining_count`, `has_more`) · `relevance_weight` read/patch ·
+row status fields + `format=csv` · list funnel stats · bulk exclusion sync ·
+sender/domain/mailbox management · project-bound keys · approvals ops ·
+joinable reply webhooks (`campaign_id`, row refs).

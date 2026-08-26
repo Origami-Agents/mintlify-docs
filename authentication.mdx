@@ -3,13 +3,18 @@ title: "Authentication"
 description: "Create and manage API keys, scope requests to projects, and stay within rate limits."
 ---
 
-The Origami API uses **API keys** for authentication. Every key is
-**parent-wide**: it belongs to your parent (agency) organization and can act on
-the parent or any of its projects.
+The Origami API uses **API keys** for authentication. The same key works on v3,
+v2, and v1. Every key is **parent-wide**: it belongs to your parent (agency)
+organization and can act on the parent or any of its projects.
+
+v3 keys also carry a **role**: `member` (default for new keys) or `admin`.
+Existing keys were backfilled to `admin`. Admin-gated Account operations
+(webhook CRUD, key create/revoke, domain purchase) return `403` for member
+keys.
 
 ## Creating an API key
 
-1. Go to **Settings → API keys** in the Origami app
+1. Go to **Settings → Developers** in the Origami app
 2. Click **Create API key**
 3. Give it a descriptive name (e.g. "n8n integration", "CRM sync")
 4. Copy the key immediately — it's shown only once
@@ -28,7 +33,7 @@ secret scanning, GitGuardian, etc.).
 Pass the key in the `Authorization` header as a Bearer token:
 
 ```bash
-curl https://origami.chat/api/v2/account \
+curl https://origami.chat/api/v3/account \
   -H "Authorization: Bearer og_live_YOUR_KEY"
 ```
 
@@ -42,32 +47,33 @@ Because keys are parent-wide, you choose which org a request acts on with the
 `x-origami-project` header:
 
 - **Omit it** to act on the parent org.
-- **Send `x-origami-project: <projectId>`** to scope the request to that
-  [project](/agents/reference/list-projects) (a child org). All org-scoped
-  resources — workspaces, tables, agents, outreach — then operate inside the
-  project.
+- **Send `x-origami-project: <project_id>`** to scope the request to that
+  [project](/v3/reference/account-projects-list) (a child org).
 
 ```bash
-curl https://origami.chat/api/v2/tables \
+curl https://origami.chat/api/v3/leads/lists \
   -H "Authorization: Bearer og_live_YOUR_KEY" \
   -H "x-origami-project: 3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90"
 ```
 
-Two endpoints ignore the header: `/projects/*` always manages projects from the
+On v3 the header applies to Leads, Send, Jobs, and — within Account — chats and
+exclusion lists. It is ignored by project management, org reads, senders,
+domains, mailboxes, webhooks, and API-key routes.
+
+On v2 two surfaces ignore it: `/projects/*` always manages projects from the
 parent, and `/account` is always parent-scoped.
 
 The header fails closed. A malformed id returns `400 VALIDATION_ERROR`; an
 unknown, cross-parent, or deleted project returns `404 PROJECT_NOT_FOUND`. The
 plan gate and rate limits stay keyed to the parent, and the concurrent-agent pool
 is shared across the whole parent. Credits spent inside a project draw on the
-parent's shared wallet, subject to the project's optional `monthlyCredits` budget
-cap and its `enforcement` mode (`"hard"` blocks spend at the cap; `"soft"` tracks
+parent's shared wallet, subject to the project's optional monthly credit budget
+cap and its enforcement mode (`"hard"` blocks spend at the cap; `"soft"` tracks
 without blocking).
 
 <Info>
-  Manage projects with the [Projects endpoints](/agents/reference/list-projects).
-  See [objects and relationships](/agents/objects#tenancy-parent-org-and-projects)
-  for how tenancy fits together.
+  Manage projects with the [Projects endpoints](/v3/reference/account-projects-list).
+  v2 tenancy is documented under [objects and relationships](/agents/objects#tenancy-parent-org-and-projects).
 </Info>
 
 ## Key management
@@ -115,9 +121,13 @@ usage headers so you can track quota proactively:
 | `X-RateLimit-Limit-IP` | Maximum requests allowed in the per-IP window |
 | `X-RateLimit-Remaining-IP` | Requests remaining in the current per-IP window |
 | `X-RateLimit-Reset-IP` | When the per-IP window resets |
-| `X-RateLimit-Limit-Global` | Maximum requests allowed in the per-org window |
-| `X-RateLimit-Remaining-Global` | Requests remaining in the current per-org window |
-| `X-RateLimit-Reset-Global` | When the per-org window resets |
+| `X-RateLimit-Limit-Org` (v3) / `X-RateLimit-Limit-Global` (v1/v2) | Maximum requests allowed in the per-org window |
+| `X-RateLimit-Remaining-Org` (v3) / `X-RateLimit-Remaining-Global` (v1/v2) | Requests remaining in the current per-org window |
+| `X-RateLimit-Reset-Org` (v3) / `X-RateLimit-Reset-Global` (v1/v2) | When the per-org window resets |
+
+v3 also exposes per-bucket standing at [`GET /account/rate-limits`](/v3/reference/account-rate-limits-get)
+(org / expensive / insert / ip). Traffic on v1, v2, and v3 shares the same
+underlying org allowance.
 
 <Info>
   Rate limits use a sliding window. If you hit the limit, honor `Retry-After`

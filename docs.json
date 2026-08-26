@@ -21,9 +21,244 @@
             "group": "Getting started",
             "pages": [
               "index",
-              "quickstart",
               "authentication",
               "reading-data"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "v3 API",
+        "groups": [
+          {
+            "group": "Guide",
+            "pages": [
+              "v3/overview",
+              "v3/quickstart",
+              "v3/jobs",
+              "v3/skill"
+            ]
+          },
+          {
+            "group": "Jobs",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /jobs",
+              "GET /jobs/{job_id}",
+              "POST /jobs/{job_id}/cancel",
+              "POST /jobs/{job_id}/input"
+            ]
+          },
+          {
+            "group": "Account",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /account",
+              "GET /account/credits",
+              "GET /account/credits/usage",
+              "GET /account/rate-limits"
+            ]
+          },
+          {
+            "group": "Projects",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /account/projects",
+              "POST /account/projects",
+              "GET /account/projects/{project_id}",
+              "PATCH /account/projects/{project_id}",
+              "DELETE /account/projects/{project_id}"
+            ]
+          },
+          {
+            "group": "Chats",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /account/chats",
+              "POST /account/chats",
+              "GET /account/chats/{chat_id}",
+              "PATCH /account/chats/{chat_id}",
+              "DELETE /account/chats/{chat_id}",
+              "POST /account/chats/{chat_id}/links",
+              "DELETE /account/chats/{chat_id}/links/{slug}",
+              "POST /account/chats/{chat_id}/messages"
+            ]
+          },
+          {
+            "group": "Senders",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /account/senders",
+              "GET /account/senders/{sender_id}",
+              "PATCH /account/senders/{sender_id}",
+              "DELETE /account/senders/{sender_id}",
+              "POST /account/senders/{sender_id}/warmup/enable",
+              "POST /account/senders/{sender_id}/warmup/disable",
+              "POST /account/senders/imap",
+              "POST /account/senders/connect",
+              "POST /account/senders/{sender_id}/reconnect",
+              "GET /account/senders/{sender_id}/send-as-aliases"
+            ]
+          },
+          {
+            "group": "Domains & mailboxes",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "POST /account/domains/search",
+              "GET /account/domains",
+              "GET /account/domains/{domain_id}",
+              "POST /account/domains/purchase",
+              "POST /account/domains/{domain_id}/renewal/cancel",
+              "POST /account/domains/{domain_id}/renewal/undo",
+              "POST /account/domains/{domain_id}/forwarding",
+              "GET /account/mailboxes",
+              "POST /account/mailboxes"
+            ]
+          },
+          {
+            "group": "Exclusion lists",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /account/exclusion-lists",
+              "PATCH /account/exclusion-lists",
+              "GET /account/exclusion-lists/people",
+              "POST /account/exclusion-lists/people",
+              "DELETE /account/exclusion-lists/people",
+              "DELETE /account/exclusion-lists/people/{entry_id}",
+              "GET /account/exclusion-lists/companies",
+              "POST /account/exclusion-lists/companies",
+              "DELETE /account/exclusion-lists/companies",
+              "DELETE /account/exclusion-lists/companies/{entry_id}"
+            ]
+          },
+          {
+            "group": "Webhook endpoints",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /account/webhooks",
+              "POST /account/webhooks",
+              "GET /account/webhooks/{webhook_id}",
+              "PATCH /account/webhooks/{webhook_id}",
+              "DELETE /account/webhooks/{webhook_id}",
+              "POST /account/webhooks/{webhook_id}/rotate",
+              "POST /account/webhooks/{webhook_id}/test"
+            ]
+          },
+          {
+            "group": "API keys",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /account/keys",
+              "POST /account/keys",
+              "DELETE /account/keys/{key_id}"
+            ]
+          },
+          {
+            "group": "Lists",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /leads/lists",
+              "POST /leads/lists",
+              "GET /leads/lists/{list_id}",
+              "PATCH /leads/lists/{list_id}",
+              "DELETE /leads/lists/{list_id}",
+              "GET /leads/lists/{list_id}/stats",
+              "POST /leads/lists/{list_id}/fetch",
+              "POST /leads/lists/{list_id}/fetch-more",
+              "POST /leads/lists/{list_id}/enrich",
+              "POST /leads/lists/{list_id}/enrich_custom"
+            ]
+          },
+          {
+            "group": "Columns",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "POST /leads/lists/{list_id}/columns",
+              "POST /leads/lists/{list_id}/columns/copy",
+              "PATCH /leads/lists/{list_id}/columns/{column_id}",
+              "DELETE /leads/lists/{list_id}/columns/{column_id}"
+            ]
+          },
+          {
+            "group": "Rows",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /leads/lists/{list_id}/rows",
+              "GET /leads/lists/{list_id}/rows/{row_id}",
+              "POST /leads/lists/{list_id}/rows/upsert",
+              "POST /leads/lists/{list_id}/rows/delete",
+              "GET /leads/lists/{list_id}/rows/{row_id}/cells/{column_id}"
+            ]
+          },
+          {
+            "group": "Searches",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "POST /leads/searches",
+              "GET /leads/searches/{search_id}",
+              "POST /leads/searches/{search_id}/fetch-more"
+            ]
+          },
+          {
+            "group": "Campaigns",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /send/campaigns",
+              "POST /send/campaigns",
+              "GET /send/campaigns/{campaign_id}",
+              "DELETE /send/campaigns/{campaign_id}",
+              "GET /send/campaigns/{campaign_id}/stats",
+              "POST /send/campaigns/draft",
+              "POST /send/campaigns/{campaign_id}/launch",
+              "POST /send/campaigns/{campaign_id}/pause",
+              "POST /send/campaigns/{campaign_id}/resume",
+              "GET /send/campaigns/{campaign_id}/settings",
+              "PATCH /send/campaigns/{campaign_id}/settings",
+              "GET /send/campaigns/{campaign_id}/senders",
+              "POST /send/campaigns/{campaign_id}/senders",
+              "DELETE /send/campaigns/{campaign_id}/senders/{sender_id}"
+            ]
+          },
+          {
+            "group": "Campaign people",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /send/campaigns/{campaign_id}/people/schema",
+              "PUT /send/campaigns/{campaign_id}/people/schema",
+              "GET /send/campaigns/{campaign_id}/people",
+              "POST /send/campaigns/{campaign_id}/people",
+              "GET /send/campaigns/{campaign_id}/people/{sequence_id}",
+              "DELETE /send/campaigns/{campaign_id}/people/{sequence_id}",
+              "PATCH /send/campaigns/{campaign_id}/people/{sequence_id}/contact",
+              "PATCH /send/campaigns/{campaign_id}/people/{sequence_id}/steps/{step_index}",
+              "POST /send/campaigns/{campaign_id}/people/{sequence_id}/remove",
+              "POST /send/campaigns/{campaign_id}/people/{sequence_id}/stop",
+              "POST /send/campaigns/{campaign_id}/people/remove",
+              "POST /send/campaigns/{campaign_id}/people/{sequence_id}/revert",
+              "POST /send/campaigns/{campaign_id}/people/{sequence_id}/sender",
+              "DELETE /send/campaigns/{campaign_id}/people/{sequence_id}/sender"
+            ]
+          },
+          {
+            "group": "Campaign templates",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /send/campaigns/{campaign_id}/templates",
+              "PUT /send/campaigns/{campaign_id}/templates",
+              "DELETE /send/campaigns/{campaign_id}/templates",
+              "POST /send/campaigns/{campaign_id}/templates/sequences",
+              "PATCH /send/campaigns/{campaign_id}/templates/sequences/{variant_key}",
+              "DELETE /send/campaigns/{campaign_id}/templates/sequences/{variant_key}"
+            ]
+          },
+          {
+            "group": "Examples & approvals",
+            "openapi": "openapi-v3.yaml",
+            "pages": [
+              "GET /send/campaigns/{campaign_id}/examples",
+              "POST /send/campaigns/{campaign_id}/examples",
+              "GET /send/campaigns/{campaign_id}/approvals",
+              "POST /send/campaigns/{campaign_id}/approvals/approve"
             ]
           }
         ]
@@ -38,7 +273,8 @@
               "agents/objects",
               "agents/quickstart",
               "agents/run-object",
-              "agents/skill"
+              "agents/skill",
+              "quickstart"
             ]
           },
           {
@@ -209,8 +445,12 @@
             ]
           },
           {
-            "group": "Event reference",
+            "group": "Sequencer & tables",
             "openapi": "openapi-webhooks.yaml"
+          },
+          {
+            "group": "API Jobs",
+            "openapi": "openapi-webhooks-jobs.yaml"
           }
         ]
       },
@@ -220,6 +460,7 @@
           {
             "group": "Migration",
             "pages": [
+              "api-v2-to-v3-migration",
               "api-v1-to-v2-migration"
             ]
           },
@@ -257,5 +498,11 @@
       "cursor"
     ]
   },
+  "redirects": [
+    {
+      "source": "/v3",
+      "destination": "/v3/overview"
+    }
+  ],
   "footer": {}
 }

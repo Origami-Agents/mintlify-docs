@@ -1,0 +1,90 @@
+---
+title: "v3 API"
+sidebarTitle: "Overview"
+description: "Named operations for lists, campaigns, and account — plus one Job for all async work."
+---
+
+The v3 API is the current way to drive Origami from your own code. You call the
+operation you mean (`leads.searches.create`, `send.campaigns.launch`, …). Async
+work returns a **Job** that stays `running` until enrichment is done, so
+`succeeded` means the result counts are final.
+
+Three sections plus one shared resource:
+
+| Section | What it does |
+| --- | --- |
+| **[Leads](/v3/reference/leads-lists-list)** | Lists, columns, one-shot search, fetch, enrich, rows + CSV |
+| **[Send](/v3/reference/send-campaigns-list)** | Campaigns as a linear recipe: draft → people → templates → launch |
+| **[Account](/v3/reference/account-get)** | Org, credits, projects, chats, senders, domains, exclusions, webhooks, keys |
+| **[Jobs](/v3/jobs)** | Every async operation returns the same Job object |
+
+A **list** is the v3 name for a table. Rows, columns, and credits work the same
+way; the URLs and field names are different.
+
+The same catalog is also a hosted MCP server (`https://mcp.origami.chat`) and
+the `origami` CLI. All three transports use the same operation ids.
+
+<Tip>
+  Building with an AI coding assistant? [Download the OpenAPI spec](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v3.yaml)
+  or [install the Origami skill](/v3/skill).
+</Tip>
+
+## Base URL
+
+All v3 requests go to:
+
+```text
+https://origami.chat/api/v3
+```
+
+Authenticate with a Bearer API key. See [authentication](/authentication).
+
+## Core conventions
+
+A few conventions hold across every endpoint:
+
+- **snake_case.** Request and response fields are `snake_case`. A camelCase body
+  is `400 VALIDATION_ERROR` — unknown fields are rejected, not stripped.
+- **Self-describing objects.** Every object carries an `object` field naming its
+  type (`"job"`, `"list"`, `"campaign"`, …).
+- **One list envelope.** Every list endpoint returns
+  `{ "object": "list", "items": [...], "next_cursor": string | null, "url": string }`.
+  Pass `next_cursor` back as `cursor` to page; `null` means the last page.
+- **Async work is a Job.** Async POSTs return `202` with a Job. Poll
+  [`GET /jobs/{job_id}`](/v3/reference/jobs-get) honoring `next_poll_at`, or
+  subscribe to [`job.*` webhooks](/webhooks/overview).
+- **Idempotency.** Any `POST` may send an `Idempotency-Key` header. Reuse with a
+  different body → `409 IDEMPOTENCY_MISMATCH`. A racing retry →
+  `409 IDEMPOTENCY_PENDING` (honor `Retry-After`).
+- **Errors.** Every error is `{ error, code, details?, handoff? }` with an
+  `UPPERCASE_SNAKE_CASE` code. `handoff` is a forwardable in-app link when the
+  user can fix the situation in the dashboard.
+
+## Project scoping
+
+Keys are parent-wide. Send `x-origami-project: <project_id>` to scope a request
+to a child project. The header applies to Leads, Send, Jobs, and — within
+Account — chats and exclusion lists. It is ignored by project management, org
+reads, senders, domains, mailboxes, webhooks, and API-key routes.
+
+## Start here
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/v3/quickstart">
+    Find leads with a brief, poll the Job, and read the rows back.
+  </Card>
+  <Card title="The Job object" icon="file-json" href="/v3/jobs">
+    Status, phase, credits, polling, and job.* webhooks.
+  </Card>
+  <Card title="Authentication" icon="key" href="/authentication">
+    API keys, roles, rate limits, and project scoping.
+  </Card>
+  <Card title="Migrating from v2" icon="arrow-right" href="/api-v2-to-v3-migration">
+    Map every v2 flow to its v3 operation.
+  </Card>
+</CardGroup>
+
+<Note>
+  v1 and v2 remain available with the same keys, with no removal date. New
+  integrations should target v3.
+</Note>

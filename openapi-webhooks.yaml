@@ -4,9 +4,11 @@ info:
   version: "1.0"
   description: |
     Outbound events Origami POSTs to your servers when sequencer or table
-    activity happens. Verify the `webhook-signature` header on every request
-    before acting on the payload; see the signatures guide. Receivers
-    MUST dedupe on the `webhook-id` header. Configure endpoints in
+    activity happens. v3 Job events (`job.succeeded`, `job.failed`,
+    `job.cancelled`, `job.needs_input`) ship in a separate spec:
+    `openapi-webhooks-jobs.yaml`. Verify the `webhook-signature` header on
+    every request before acting on the payload; see the signatures guide.
+    Receivers MUST dedupe on the `webhook-id` header. Configure endpoints in
     **Settings → Developers → Webhooks**.
 
 webhooks:
@@ -164,7 +166,8 @@ webhooks:
       summary: Test event
       description: |
         Origami POSTs this event when you click **Test endpoint** in the
-        dashboard. Always delivered regardless of subscription; it's a
+        dashboard or call `POST /api/v3/account/webhooks/{webhook_id}/test`.
+        Always delivered regardless of subscription; it's a
         wire-connectivity check, not a business signal.
 
         Receivers can ignore test traffic in production analytics by
@@ -204,8 +207,20 @@ components:
         `table_id` / `row_id` / `column_id` point back to the workspace
         row that triggered the message. `column_id` is the trigger
         column and is stable across all events for a given outreach,
-        so it can serve as a campaign identifier. Channel-specific
-        identity fields are null when not applicable.
+        so it can serve as a campaign identifier.
+
+        On inbound events (reply, connection accepted) the pointers are
+        resolved from the sequence the event is attributed to
+        (`data.sequence_id`), so a reply joins to the same row as the
+        send it answers.
+
+        All three are null together in two cases: the sequence was never
+        bound to a table row, or the pointer resolution failed and we
+        shipped the event anyway rather than drop a delivery over a
+        correlation field. Neither case affects `data.sequence_id` -
+        join on it if you need a key that is always present.
+
+        Channel-specific identity fields are null when not applicable.
       properties:
         table_id:
           type: string
@@ -235,8 +250,17 @@ components:
       type: object
       description: |
         The sending identity inside your org: which mailbox or
-        LinkedIn account this event is associated with.
+        LinkedIn account this event is associated with. `id` is the
+        stable sender id from `GET /api/v3/account/senders` (v2:
+        `GET /api/v2/senders`; also carried by sequence objects as
+        `senderId`) — join on it rather than the mutable human
+        identifiers.
       properties:
+        id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Stable sender id; null only for legacy rows with no bound account.
         email:
           type: string
           format: email
@@ -247,7 +271,7 @@ components:
         display_name:
           type: string
           nullable: true
-      required: [email, linkedin_slug, display_name]
+      required: [id, email, linkedin_slug, display_name]
 
     SendMessage:
       type: object
@@ -289,6 +313,14 @@ components:
         sequence_id:
           type: string
           format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Campaign this sequence belongs to; null for sequences that predate
+            campaigns or whose campaign link was severed. The join key for
+            routing an outbound touch back to the campaign that produced it.
         step_index:
           type: integer
           minimum: 0
@@ -307,6 +339,7 @@ components:
       required:
         - channel
         - sequence_id
+        - campaign_id
         - step_index
         - message_id
         - outreach_target
@@ -356,6 +389,14 @@ components:
           type: string
           format: uuid
           description: "Primary matched sequence: what most receivers attribute the reply to."
+        campaign_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Campaign the primary sequence belongs to; null for sequences that
+            predate campaigns or whose campaign link was severed. The join key
+            for routing a reply back to the campaign that produced the send.
         newly_stopped:
           type: boolean
           description: True if `sequence_id` transitioned to stopped on this reply.
@@ -380,6 +421,7 @@ components:
       required:
         - channel
         - sequence_id
+        - campaign_id
         - newly_stopped
         - outreach_target
         - sender
@@ -394,6 +436,14 @@ components:
         sequence_id:
           type: string
           format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Campaign this sequence belongs to; null for sequences that predate
+            campaigns or whose campaign link was severed. The join key for
+            routing an outbound touch back to the campaign that produced it.
         step_index:
           type: integer
           minimum: 0
@@ -415,6 +465,7 @@ components:
       required:
         - channel
         - sequence_id
+        - campaign_id
         - step_index
         - original_message_id
         - outreach_target
@@ -427,7 +478,8 @@ components:
       properties:
         triggered_by:
           type: string
-          enum: [dashboard]
+          enum: [dashboard, api]
+          description: Dashboard **Test endpoint** button, or the v3 `account.webhooks.test` call.
         triggered_at:
           type: string
           format: date-time
@@ -450,6 +502,8 @@ components:
         workspace_id:
           type: string
           format: uuid
+          nullable: true
+          description: Null for chat-created (workspace-less) tables. Address the table by `table_id`.
         organization_id:
           type: string
           format: uuid

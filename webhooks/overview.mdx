@@ -1,6 +1,6 @@
 ---
 title: "Webhooks overview"
-description: "Receive signed event POSTs from Origami when sequencer or table activity happens."
+description: "Receive signed event POSTs from Origami when Jobs, sequencer, or table activity happens."
 ---
 
 <Note>
@@ -10,7 +10,27 @@ description: "Receive signed event POSTs from Origami when sequencer or table ac
 </Note>
 
 When a subscribed event happens, Origami POSTs a signed JSON envelope to
-a URL you configure in **Settings → Developers → Webhooks**.
+a URL you configure in **Settings → Developers → Webhooks**, or via
+[`POST /api/v3/account/webhooks`](/v3/reference/account-webhooks-create).
+
+## API Jobs events
+
+v3-only. These fire when a [Job](/v3/jobs) changes status — searches,
+fetches, enrichment, campaign drafts, domain purchases, mailbox
+provisioning, and chat messages.
+
+| Event | When it fires | Default in picker |
+|-------|---------------|-------------------|
+| `job.succeeded` | A Job finished successfully. Payload carries a compact summary (counts and resource ids), never row-level data. Fetch the full result with [`GET /api/v3/jobs/{job_id}`](/v3/reference/jobs-get). | off |
+| `job.failed` | A Job failed. Payload carries `error` plus any partial counts. | off |
+| `job.cancelled` | A Job was cancelled. Partial work is reported. | off |
+| `job.needs_input` | A Job paused for questions or a human handoff. | off |
+
+Subscribe to specific types or the `job.*` wildcard. Payloads echo the
+`metadata` you passed when admitting the Job, so you can correlate
+without polling. `data.sequence` is a monotonic generation — ignore any
+event whose sequence is not greater than the last one you processed for
+that `job_id`.
 
 ## Tables events
 
@@ -19,7 +39,9 @@ a URL you configure in **Settings → Developers → Webhooks**.
 | `table.run.completed` | An `enrich=true` API enrichment batch (v1 insert or v2 upsert) reaches a terminal state — `complete`, `cancelled`, or `failed`. Payload carries `run_id`, `table_id`, `source`, terminal `status`, timestamps, optional `failure_reason`, and child-outcome `counts` (`complete`, `errored`, `cancelled`). | off |
 
 Subscribe to `table.run.completed`, the `table.*` wildcard, or `*` (everything).
-Missed delivery? Recover with
+Missed delivery on a v3 upsert? Recover with
+[`GET /api/v3/jobs/{job_id}`](/v3/reference/jobs-get) using the embedded
+enrichment Job id. On v2, recover with
 [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run)
 using the `run_id` from the payload (or `enrichment_run.tableRunId` from the upsert response).
 
@@ -31,11 +53,16 @@ using the `run_id` from the payload (or `enrichment_run.tableRunId` from the ups
 | `sequence.reply.received` | An inbound email or LinkedIn DM matched an outbound sequence. | on |
 | `sequence.connection.requested` | A sequencer LinkedIn invite was sent. | off |
 | `sequence.connection.accepted` | A LinkedIn invite from a sequence was accepted. | on |
-| `webhook.test` | You clicked **Test endpoint** in the dashboard. Always delivered, regardless of subscription. | n/a |
+| `webhook.test` | You clicked **Test endpoint** in the dashboard or called `POST /api/v3/account/webhooks/{webhook_id}/test`. Always delivered, regardless of subscription. | n/a |
+
+Every sequencer payload carries `campaign_id` (nullable) — the join key
+for routing a touch back to the campaign that produced it — and
+`sender.id`, the stable sender id from
+[`GET /api/v3/account/senders`](/v3/reference/account-senders-list).
 
 Subscribe to specific event types, the `sequence.*` wildcard, the
-`sequence.connection.*` sub-wildcard, `table.*`, or `*` (everything, including
-future event types).
+`sequence.connection.*` sub-wildcard, `table.*`, `job.*`, or `*`
+(everything, including future event types).
 
 ## Delivery guarantees
 

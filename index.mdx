@@ -4,47 +4,51 @@ description: "Build, enrich, and read lead data programmatically with the Origam
 ---
 
 Origami is an AI-powered lead generation and data enrichment platform. The
-**v2 API** is the single canonical way to drive it from your own code. There are
-two ways to use it:
+**v3 API** is the current way to drive it from your own code. You call named
+operations for lists, campaigns, and account — and every async call returns a
+**Job**.
 
-- **Let the agent do the work.** Hand Origami a brief in plain English and it
-  researches a market, finds leads, and builds a table for you.
-- **Bring your own data.** Push rows into a table, let the table's columns enrich
-  them, and read the results back — emails, employee counts, technographics, and
-  whatever else those columns produce.
+- **Find leads.** Hand Origami a brief; it creates a list, sources rows, and
+  enriches them.
+- **Bring your own data.** Upsert rows into a list, let its columns enrich them,
+  and read the results back.
+- **Run outreach.** Build a campaign as a linear recipe: people, templates,
+  senders, launch.
 
 The API is resource-oriented and self-describing. If you've used Stripe, it will
-feel familiar. Start with [objects and relationships](/agents/objects) to learn
-the handful of objects everything is built from.
+feel familiar. Start with [the v3 API](/v3/overview) for the conventions, then the
+[quickstart](/v3/quickstart) to run your first search.
 
 <Tip>
-  Building with an AI coding assistant? [Download the OpenAPI spec](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v2.yaml)
+  Building with an AI coding assistant? [Download the OpenAPI spec](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v3.yaml)
   for client generators, Postman, or your editor — or install the
-  [Origami skill](/agents/skill).
+  [Origami skill](/v3/skill).
 </Tip>
 
 ## Base URL
 
-All v2 requests go to:
+All v3 requests go to:
 
 ```text
-https://origami.chat/api/v2
+https://origami.chat/api/v3
 ```
 
 Authenticate with a Bearer API key. See [authentication](/authentication).
 
 ## Core conventions
 
-A few conventions hold across every endpoint:
+A few conventions hold across every v3 endpoint:
 
+- **snake_case.** Request and response fields are `snake_case`. Unknown fields
+  are `400 VALIDATION_ERROR`.
 - **Self-describing objects.** Every object carries an `object` field naming its
-  type (`"agent"`, `"table"`, `"campaign"`, …).
+  type (`"job"`, `"list"`, `"campaign"`, …).
 - **One list envelope.** Every list endpoint returns
-  `{ "object": "list", "items": [...], "nextCursor": string | null, "url": string }`.
-  Pass `nextCursor` back as `cursor` to page; `null` means the last page.
-- **Async agent work.** `POST /agents` and `POST /agents/{id}/runs` return a
-  `running` run immediately. Poll until `status` is terminal, honoring
-  `Retry-After`.
+  `{ "object": "list", "items": [...], "next_cursor": string | null, "url": string }`.
+  Pass `next_cursor` back as `cursor` to page; `null` means the last page.
+- **Async work is a Job.** Async POSTs return `202` with a Job. Poll until
+  `status` is terminal, honoring `next_poll_at`, or subscribe to `job.*`
+  webhooks.
 - **Idempotency.** Any `POST` may send an `Idempotency-Key` header for safe
   retries.
 - **Errors.** Every error is `{ error, code, details?, handoff? }` with an
@@ -53,28 +57,29 @@ A few conventions hold across every endpoint:
 ## Quick links
 
 <CardGroup cols={2}>
-  <Card title="Objects and relationships" icon="diagram-project" href="/agents/objects">
-    The objects the API is built from and how they connect.
+  <Card title="v3 API" icon="code" href="/v3/overview">
+    Named operations, the Job object, and how the three sections fit together.
   </Card>
-  <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Enrich your first table end to end with curl.
+  <Card title="Quickstart" icon="rocket" href="/v3/quickstart">
+    Find leads with a brief, poll the Job, and read the rows back.
   </Card>
   <Card title="Authentication" icon="key" href="/authentication">
-    API keys, rate limits, and project scoping.
+    API keys, roles, rate limits, and project scoping.
   </Card>
-  <Card title="Reading data" icon="table" href="/reading-data">
-    Filter, sort, paginate, and export rows.
+  <Card title="Webhooks" icon="webhook" href="/webhooks/overview">
+    Signed POSTs for sequencer activity, table runs, and Job transitions.
   </Card>
-  <Card title="Agent API" icon="robot" href="/agents">
-    Drive Origami's AI worker from a plain-English brief.
+  <Card title="Migrating from v2" icon="arrow-right" href="/api-v2-to-v3-migration">
+    Map every v2 flow to its v3 operation.
   </Card>
-  <Card title="Migrating from v1" icon="arrow-right" href="/api-v1-to-v2-migration">
-    Map every deprecated v1 route to its v2 equivalent.
+  <Card title="v2 API" icon="clock" href="/agents">
+    The previous API. Still fully functional; deprecated for new work.
   </Card>
 </CardGroup>
 
 <Note>
-  The **Data API (v1)** is deprecated but still fully functional, with no removal
-  date in this release. New integrations should target v2. See the
-  [migration guide](/api-v1-to-v2-migration).
+  v1 and v2 remain available with the same keys, with no removal date. New
+  integrations should target v3. See the
+  [v2 → v3](/api-v2-to-v3-migration) and [v1 → v2](/api-v1-to-v2-migration)
+  migration guides.
 </Note>

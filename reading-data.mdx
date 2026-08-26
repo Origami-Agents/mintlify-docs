@@ -3,6 +3,12 @@ title: "Reading data"
 description: "Filter, sort, paginate, export, and delete enriched table rows with the v2 API."
 ---
 
+<Note>
+  This page documents the **v2** row-read surface. On v3, use
+  [`GET /api/v3/leads/lists/{list_id}/rows`](/v3/reference/leads-lists-rows-list)
+  (`min_relevance_score`, `ids`, `format=csv`, `next_cursor`).
+</Note>
+
 [`GET /api/v2/tables/{tableId}/rows`](/agents/reference/list-rows) returns a
 table's rows with support for filtering, sorting, cursor pagination, and CSV
 export. Reads are free.

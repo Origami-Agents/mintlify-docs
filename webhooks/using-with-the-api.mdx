@@ -1,19 +1,22 @@
 ---
 title: "Using webhooks with the API"
-description: "Combine the v2 API and webhooks into one submit, notify, resolve loop."
+description: "Combine the API and webhooks into one submit, notify, resolve loop."
 ---
 
-The v2 API and webhooks are two halves of the same integration. The API is a **pull**
-surface — you request state and ask Origami to change it. Webhooks are a **push** surface —
-Origami tells you the moment something happens, so you don't have to poll.
+The API and webhooks are two halves of the same integration. The API is a **pull**
+surface — you request state and ask Origami to change it. Webhooks are a **push**
+surface — Origami tells you the moment something happens, so you don't have to poll.
 
 | Plane | Direction | Answers |
 |-------|-----------|---------|
-| [v2 API](/agents) | pull (request → response) | "What is the state, and please change it." |
+| [v3 API](/v3/overview) | pull (request → response) | "What is the state, and please change it." |
 | [Webhooks](/webhooks/overview) | push (event → your endpoint) | "Tell me the moment something happens." |
 
 They are not alternatives. A real integration uses both: the API to submit work and read
 results, webhooks to learn when long-running or externally-triggered things happen.
+
+For v3 Jobs, subscribe to `job.*` and skip the poll loop: the webhook tells you
+the Job is terminal, then you `GET` it once for the full `result`.
 
 ## The submit, notify, resolve loop
 
@@ -37,14 +40,17 @@ Sequence outreach is the clearest example you can wire up today:
   </Step>
 </Steps>
 
-For `enrich=true` upsert batches, subscribe to `table.run.completed` — the webhook fires when
-the parent table run reaches a terminal state (`complete`, `cancelled`, or `failed`). Missed
-delivery? Recover by polling [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run)
-using the `tableRunId` from the upsert receipt, or poll the enrichment run at
-[`GET /api/v2/enrichment-runs/{runId}`](/agents/reference/get-enrichment-run).
+For v3 async work (searches, fetches, enrichment, drafts), subscribe to
+`job.succeeded` / `job.failed` / `job.cancelled` / `job.needs_input`. The
+payload's `job_id` is the same id you poll at
+[`GET /api/v3/jobs/{job_id}`](/v3/reference/jobs-get). Pass `metadata` on
+admit so the webhook carries your correlation key.
 
-For agent runs (no webhook yet), poll [`GET /api/v2/agents/{id}/runs/{runId}`](/agents/reference/get-run)
-until `status` is terminal.
+For `enrich=true` upsert batches, subscribe to `table.run.completed` — the webhook fires when
+the parent table run reaches a terminal state (`complete`, `cancelled`, or `failed`). On v3,
+the upsert response embeds an `enrichment_job` you can also watch via `job.*`. Missed
+delivery on v2? Recover by polling [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run)
+using the `tableRunId` from the upsert receipt.
 
 ## Correlation keys
 
@@ -53,12 +59,13 @@ a push event to a pull read with no extra mapping.
 
 | Payload field | Read it with |
 |---------------|--------------|
+| `data.job_id` (on `job.*`) | [`GET /api/v3/jobs/{job_id}`](/v3/reference/jobs-get) |
+| `data.metadata` (on `job.*`) | Echo of the object you passed when admitting the Job. |
+| `data.campaign_id` (sequencer events) | [`GET /api/v3/send/campaigns/{campaign_id}`](/v3/reference/send-campaigns-get) |
+| `data.sender.id` (sequencer events) | [`GET /api/v3/account/senders/{sender_id}`](/v3/reference/account-senders-get) |
 | `data.run_id` (on `table.run.completed`) | [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run) |
-| `enrichment_run.tableRunId` | [`GET /api/v2/tables/{tableId}/runs/{runId}`](/agents/reference/get-table-run) |
-| `outreach_target.{table_id, row_id}` | `GET /api/v2/tables/{tableId}/rows/{rowId}` |
-| `outreach_target.column_id` | The stable campaign identifier across a sequence's events. |
-| `sequence_id` | `GET /api/v2/sequences/{sequenceId}` |
-| `message_id` | The matching step (`stepId`) on the sequence detail. |
+| `outreach_target.{table_id, row_id}` | [`GET /api/v3/leads/lists/{list_id}/rows/{row_id}`](/v3/reference/leads-lists-rows-get) |
+| `sequence_id` | v3: the campaign person (`sequence_id`). v2: `GET /api/v2/sequences/{sequenceId}` |
 
 ## Auth and security
 

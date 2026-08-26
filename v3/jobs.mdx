@@ -1,0 +1,122 @@
+---
+title: "The Job object"
+description: "How async work is represented, polled, cancelled, and pushed over webhooks."
+---
+
+Every async v3 operation returns the same **Job**. Searches, fetches, enrichment,
+campaign drafts, domain purchases, mailbox provisioning, and chat messages all
+share this object.
+
+```json
+{
+  "object": "job",
+  "id": "3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90",
+  "operation": "leads.searches.create",
+  "status": "running",
+  "cancel_requested": false,
+  "phase": "enriching",
+  "progress": { "done": 18, "total": 25 },
+  "target": { "type": "list", "id": "d290f1ee-6c54-4b01-90e6-d701748f0851" },
+  "metadata": { "sync_run": "2026-08-25" },
+  "next_poll_at": "2026-08-25T18:05:12Z",
+  "result": null,
+  "credits": { "spent": 12.5, "settled": false },
+  "error": null,
+  "needs_input": null,
+  "chat_id": null,
+  "created_at": "2026-08-25T18:04:01Z",
+  "updated_at": "2026-08-25T18:04:58Z"
+}
+```
+
+## Status
+
+| Status | Meaning |
+| --- | --- |
+| `queued` | Admitted, not yet running. |
+| `running` | Work is in flight. Honor `next_poll_at`. Stays `running` through enrichment. |
+| `needs_input` | Paused for questions or a human handoff. Same Job id resumes. |
+| `succeeded` | Done **including enrichment**. Result counts are final. |
+| `failed` | Terminal failure. See `error.code`. Some agent failures are retryable. |
+| `cancelled` | Cancel finished. Partial work is kept (`result.partial: true`). |
+
+`succeeded` is the important difference from v2. A v2 run could `completed`
+while cells were still filling in. A v3 Job does not.
+
+## Polling
+
+Poll [`GET /jobs/{job_id}`](/v3/reference/jobs-get) while `status` is `queued`
+or `running`. Every running response carries `next_poll_at` and a `Retry-After`
+header. Honor them. Polling faster does not finish the Job sooner — those reads
+are served from a short-lived cache.
+
+Lost a Job id? List them:
+
+```bash
+curl "https://origami.chat/api/v3/jobs?status=running&target_type=list&target_id=$LIST_ID" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+Pass `metadata` when you admit the Job so you can correlate the list (and the
+webhook) back to your own run id.
+
+## Webhooks
+
+Subscribe to the `job.*` group instead of polling:
+
+| Event | When it fires |
+| --- | --- |
+| `job.succeeded` | Job finished successfully |
+| `job.failed` | Job failed |
+| `job.cancelled` | Job was cancelled |
+| `job.needs_input` | Job paused for questions or a handoff |
+
+Payloads carry a compact summary (counts and resource ids), your `metadata`,
+and `credits`. They never include row-level data or `row_ids` — fetch those
+with [`GET /jobs/{job_id}`](/v3/reference/jobs-get). See the
+[Job event reference](/webhooks/overview).
+
+`sequence` on the payload is a monotonic generation. At-least-once retries can
+arrive out of order — ignore any event whose `sequence` is not greater than the
+last one you processed for that `job_id`.
+
+## Credits
+
+`credits.spent` is this Job's spend alone. `settled: false` on a
+`quality: "accurate"` run means the number can still adjust down after
+delivered-lead settlement. Reconcile billing after `settled: true`.
+
+`credits` is `null` on operations that spend nothing.
+
+## needs_input
+
+When `status` is `needs_input`, `needs_input` is one of:
+
+- **`questions`** — answer with
+  [`POST /jobs/{job_id}/input`](/v3/reference/jobs-input)
+  `{ "answers": ["..."] }`. The same Job id resumes.
+- **`handoff`** — a human step (for example Stripe SCA). Send the user the URL.
+  Origami resumes the Job itself after the in-app step completes.
+
+## Cancel
+
+[`POST /jobs/{job_id}/cancel`](/v3/reference/jobs-cancel) is cooperative. A
+successful call sets `cancel_requested: true` and returns the current snapshot.
+Repeating cancel on an already-flagged Job is an idempotent 200. A Job that
+cannot be cancelled returns `409 JOB_NOT_CANCELLABLE`.
+
+Partial work is kept. Credits already spent are not refunded.
+
+## Retryable agent failures
+
+Failed AGENT Jobs keep a retry signal on `error.code`:
+
+| Code | Retry? |
+| --- | --- |
+| `AGENT_INCOMPLETE` | Yes — `details.retryable: true` |
+| `AGENT_STEP_CAP` | Yes |
+| `AGENT_TIMED_OUT` | Yes |
+| `AGENT_ERRORED` | No |
+
+Retryable means re-running the same call on the same resources is reasonable.
+Don't create a fresh list and pay for the lookups twice.

@@ -1,0 +1,141 @@
+---
+title: "Quickstart"
+description: "Find leads with a brief, poll the Job, and read the rows back."
+---
+
+This walkthrough runs a one-shot search: Origami creates a list, sources leads
+from your brief, enriches them, and returns the row ids. To enroll those leads
+in a campaign instead, see the [Send endpoints](/v3/reference/send-campaigns-create).
+
+<Tip>
+  Building with an AI coding assistant? Download the
+  [OpenAPI spec](https://raw.githubusercontent.com/Origami-Agents/mintlify-docs/main/openapi-v3.yaml)
+  or [install the Origami skill](/v3/skill).
+</Tip>
+
+## Prerequisites
+
+- An Origami account on a paid plan
+- An API key (create one in **Settings → Developers**)
+
+```bash
+export ORIGAMI_API_KEY=og_live_your_key_here
+```
+
+## Step 1: Start a search
+
+[`POST /leads/searches`](/v3/reference/leads-searches-create) creates a list,
+sources leads, and enriches them. The brief is the steer — there is no filter
+DSL.
+
+```bash
+curl -X POST https://origami.chat/api/v3/leads/searches \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "brief": "Heads of RevOps at 50-500 person US SaaS companies",
+    "count": 25
+  }'
+```
+
+You get `202 Accepted` with a Job already `running`. Keep `id` — you'll poll it
+next.
+
+```json
+{
+  "object": "job",
+  "id": "3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90",
+  "operation": "leads.searches.create",
+  "status": "running",
+  "phase": "researching",
+  "target": null,
+  "next_poll_at": "2026-08-25T18:05:12Z",
+  "result": null,
+  "credits": { "spent": 0, "settled": true }
+}
+```
+
+## Step 2: Poll the Job
+
+Poll [`GET /jobs/{job_id}`](/v3/reference/jobs-get) until `status` is no longer
+`queued` or `running`. Honor `next_poll_at` (or the `Retry-After` header).
+Polling faster than the hint is served from a short-lived cache — it costs you
+requests without surfacing progress sooner.
+
+```bash
+JOB_ID=3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90
+
+while true; do
+  RESP=$(curl -fsSL -D /tmp/origami-headers \
+    "https://origami.chat/api/v3/jobs/$JOB_ID" \
+    -H "Authorization: Bearer $ORIGAMI_API_KEY")
+  STATUS=$(echo "$RESP" | jq -r '.status')
+  case "$STATUS" in queued|running) ;; *) break ;; esac
+  WAIT=$(grep -i '^retry-after:' /tmp/origami-headers | awk '{print $2}' | tr -d '\r')
+  sleep "${WAIT:-15}"
+done
+echo "$RESP" | jq .
+```
+
+A sourcing Job stays `running` with `phase: "enriching"` until the cells it
+owns finish. When `status` is `succeeded`, result counts are final.
+
+```json
+{
+  "object": "job",
+  "id": "3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90",
+  "operation": "leads.searches.create",
+  "status": "succeeded",
+  "phase": null,
+  "target": { "type": "list", "id": "d290f1ee-6c54-4b01-90e6-d701748f0851" },
+  "result": {
+    "list_id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+    "search_id": "7c4e2a11-9b80-4d33-a1f0-0c8e6b2d4a71",
+    "added": 23,
+    "row_ids": ["a1b2c3d4-1111-2222-3333-444455556666"]
+  },
+  "credits": { "spent": 47.5, "settled": true }
+}
+```
+
+Prefer push over poll? Subscribe to [`job.succeeded`](/webhooks/overview) and
+read the Job when the event arrives.
+
+## Step 3: Read the rows
+
+Use `result.row_ids` to read exactly the rows this run added. Cap is 100 ids
+per call.
+
+```bash
+curl "https://origami.chat/api/v3/leads/lists/$LIST_ID/rows?ids=$ROW_ID" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+```json
+{
+  "object": "list",
+  "items": [
+    {
+      "object": "row",
+      "id": "a1b2c3d4-1111-2222-3333-444455556666",
+      "relevance_score": 82,
+      "is_deduplicated": false,
+      "is_excluded": false
+    }
+  ],
+  "next_cursor": null,
+  "url": "/api/v3/leads/lists/d290f1ee-6c54-4b01-90e6-d701748f0851/rows"
+}
+```
+
+To export the whole list, pass `format=csv` on the same endpoint.
+
+## What's next
+
+- Start small (`count: 10`), inspect rows, then
+  [`fetch-more`](/v3/reference/leads-searches-fetch-more) on the same search.
+- Prefer a list you already shaped? Create it, add columns, then
+  [`POST /leads/lists/{list_id}/fetch`](/v3/reference/leads-lists-fetch).
+- Enroll the list in a campaign with the
+  [Send recipe](/v3/reference/send-campaigns-create).
+- Read [the Job object](/v3/jobs) for `needs_input`, cancel, and credits.

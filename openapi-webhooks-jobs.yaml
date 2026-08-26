@@ -1,0 +1,297 @@
+openapi: 3.1.0
+info:
+  title: Origami Job webhooks
+  version: "3.0"
+  description: |
+    Outbound events Origami POSTs to your servers when a v3 API Job
+    changes status. These events are v3-only — they fire for searches,
+    fetches, enrichment, campaign drafts, domain purchases, mailbox
+    provisioning, and chat messages.
+
+    Payloads carry a compact summary (counts and resource ids), never
+    row-level data. Fetch the full Job with
+    `GET /api/v3/jobs/{job_id}`. Verify the `webhook-signature` header
+    on every request; receivers MUST dedupe on `webhook-id`. Subscribe
+    to specific types or the `job.*` wildcard in
+    **Settings → Developers → Webhooks**.
+
+webhooks:
+  job.succeeded:
+    post:
+      x-mint:
+        href: /webhooks/events/job-succeeded
+      operationId: jobSucceeded
+      summary: Job succeeded
+      description: |
+        Origami POSTs this event when a v3 Job finishes successfully.
+        `data.summary` carries counts and resource ids (for example
+        `list_id`, `added`) — never `row_ids` and never row-level
+        data. Read the full `result` with
+        `GET /api/v3/jobs/{job_id}`.
+
+        `data.credits.settled: false` on a quoted run means the spend
+        is provisional until delivered-lead settlement writes back.
+
+        **Default in the picker:** off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobSucceededEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+  job.failed:
+    post:
+      x-mint:
+        href: /webhooks/events/job-failed
+      operationId: jobFailed
+      summary: Job failed
+      description: |
+        Origami POSTs this event when a v3 Job fails. `data.error`
+        carries the `code` and `message`; `data.summary` may include
+        partial counts the work produced before failing.
+
+        Retryable agent failures use `error.code`
+        `AGENT_INCOMPLETE` / `AGENT_STEP_CAP` / `AGENT_TIMED_OUT`
+        with `details.retryable: true`.
+
+        **Default in the picker:** off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobFailedEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+  job.cancelled:
+    post:
+      x-mint:
+        href: /webhooks/events/job-cancelled
+      operationId: jobCancelled
+      summary: Job cancelled
+      description: |
+        Origami POSTs this event when a v3 Job is cancelled.
+        Partial work is kept; `data.summary` reports whatever
+        completed before cancel. The full Job GET carries
+        `result.partial: true`.
+
+        **Default in the picker:** off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobCancelledEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+  job.needs_input:
+    post:
+      x-mint:
+        href: /webhooks/events/job-needs-input
+      operationId: jobNeedsInput
+      summary: Job needs input
+      description: |
+        Origami POSTs this event when a v3 Job pauses for
+        clarification (`data.needs_input.questions`) or a human
+        step (`data.needs_input.handoff`). Answer questions with
+        `POST /api/v3/jobs/{job_id}/input`. A handoff URL is for
+        the user — Origami resumes the Job itself after the
+        in-app step completes.
+
+        **Default in the picker:** off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobNeedsInputEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
+components:
+  schemas:
+    EnvelopeId:
+      type: string
+      format: uuid
+      description: |
+        Equal to the `webhook-id` HTTP header. Stable across retries;
+        use for receiver-side deduplication.
+
+    EventTimestamp:
+      type: string
+      format: date-time
+      description: |
+        Event time (when the business action happened), set once at
+        publish and replayed on retries. NOT the dispatch time, which
+        lives in the `webhook-timestamp` HTTP header and is recomputed
+        per send.
+
+    JobTarget:
+      type: object
+      nullable: true
+      description: |
+        Resource this Job is operating on. Null until a creator Job
+        (for example a one-shot search) has minted the resource.
+      properties:
+        type:
+          type: string
+          enum: [list, search, campaign, chat, domain_order]
+        id:
+          type: string
+      required: [type, id]
+
+    JobCredits:
+      type: object
+      nullable: true
+      description: |
+        This Job's credit totals as of the transition. Null for
+        operations that spend nothing. `settled: false` on a quoted
+        run marks the number provisional until delivered-lead
+        settlement writes back.
+      properties:
+        spent:
+          type: number
+        settled:
+          type: boolean
+      required: [spent, settled]
+
+    JobError:
+      type: object
+      nullable: true
+      description: Set on `job.failed`.
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+      required: [code, message]
+
+    JobEventData:
+      type: object
+      description: |
+        Compact Job transition payload. One shape for all four
+        `job.*` events. `sequence` is the Job's monotonic transition
+        generation — at-least-once retries can arrive out of order,
+        so ignore any event whose `sequence` is not greater than the
+        last one processed for that `job_id`.
+
+        `metadata` echoes the object you passed when admitting the
+        Job, for correlation. Full result always rides
+        `GET /api/v3/jobs/{job_id}`.
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        operation:
+          type: string
+          description: Catalog operation id, e.g. `leads.searches.create`.
+        status:
+          type: string
+          enum: [succeeded, failed, cancelled, needs_input]
+        sequence:
+          type: integer
+          description: Monotonic transition generation. Use to drop stale retries.
+        target:
+          $ref: "#/components/schemas/JobTarget"
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: Client-supplied correlation object, echoed verbatim.
+        credits:
+          $ref: "#/components/schemas/JobCredits"
+        summary:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: |
+            Compact counts and resource ids. Never row-level data and
+            never `row_ids` (fetch those via GET). On `succeeded`,
+            typical keys include `list_id` and `added`. On `cancelled`,
+            partial counts. On `failed`, any partial counts the work
+            produced.
+        error:
+          $ref: "#/components/schemas/JobError"
+        needs_input:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: |
+            Set on `job.needs_input`. Either `questions` (answer via
+            `POST /jobs/{job_id}/input`) or `handoff` (send the user
+            the URL; Origami resumes the Job itself).
+      required:
+        - job_id
+        - operation
+        - status
+        - sequence
+        - target
+        - metadata
+        - credits
+        - summary
+        - error
+        - needs_input
+
+    JobSucceededEnvelope:
+      type: object
+      properties:
+        type:
+          const: job.succeeded
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/JobEventData"
+      required: [type, id, timestamp, data]
+
+    JobFailedEnvelope:
+      type: object
+      properties:
+        type:
+          const: job.failed
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/JobEventData"
+      required: [type, id, timestamp, data]
+
+    JobCancelledEnvelope:
+      type: object
+      properties:
+        type:
+          const: job.cancelled
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/JobEventData"
+      required: [type, id, timestamp, data]
+
+    JobNeedsInputEnvelope:
+      type: object
+      properties:
+        type:
+          const: job.needs_input
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/JobEventData"
+      required: [type, id, timestamp, data]
