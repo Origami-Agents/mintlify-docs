@@ -3,9 +3,10 @@ title: "The Job object"
 description: "How async work is represented, polled, cancelled, and pushed over webhooks."
 ---
 
-Every async v3 operation returns the same **Job**. Searches, fetches, enrichment,
-campaign drafts, domain purchases, mailbox provisioning, and chat messages all
-share this object.
+Anything that can't finish inside a request hands you a **Job** and keeps
+working in the background. Searches, fetches, enrichment, campaign drafts,
+domain purchases, mailbox provisioning, and chat messages all return this same
+object, so you write the waiting logic once.
 
 ```json
 {
@@ -40,15 +41,18 @@ share this object.
 | `failed` | Terminal failure. See `error.code`. Some agent failures are retryable. |
 | `cancelled` | Cancel finished. Partial work is kept (`result.partial: true`). |
 
-`succeeded` is the important difference from v2. A v2 run could `completed`
-while cells were still filling in. A v3 Job does not.
+`succeeded` is the important difference from v2. A v2 run could report
+`completed` while cells were still filling in. A v3 Job stays `running` through
+enrichment, so when it succeeds the numbers are final and you can act on them
+immediately.
 
 ## Polling
 
 Poll [`GET /jobs/{job_id}`](/v3/reference/jobs-get) while `status` is `queued`
 or `running`. Every running response carries `next_poll_at` and a `Retry-After`
-header. Honor them. Polling faster does not finish the Job sooner — those reads
-are served from a short-lived cache.
+header. Honor them: polling faster does not finish the Job sooner, because those
+reads are served from a short-lived cache. See the
+[quickstart](/v3/quickstart#step-2-poll-the-job) for a poll loop you can copy.
 
 Lost a Job id? List them:
 
@@ -120,3 +124,16 @@ Failed AGENT Jobs keep a retry signal on `error.code`:
 
 Retryable means re-running the same call on the same resources is reasonable.
 Don't create a fresh list and pay for the lookups twice.
+
+## Where Jobs come from
+
+| You called | You get back |
+| --- | --- |
+| [`leads.searches.create`](/v3/reference/leads-searches-create), [`leads.lists.fetch`](/v3/reference/leads-lists-fetch), [`fetch-more`](/v3/reference/leads-searches-fetch-more) | Sourcing, then enrichment |
+| [`leads.lists.enrich`](/v3/reference/leads-lists-enrich), [`enrich_custom`](/v3/reference/leads-lists-enrich-custom) | Enrichment |
+| [`leads.lists.rows.upsert`](/v3/reference/leads-lists-rows-upsert) with `enrich: true` | A sync response with an enrichment Job embedded |
+| [`send.campaigns.draft`](/v3/reference/send-campaigns-draft), [`examples.generate`](/v3/reference/send-campaigns-examples-generate) | Copy generation |
+| [`account.domains.purchase`](/v3/reference/account-domains-purchase), [`mailboxes.provision`](/v3/reference/account-mailboxes-provision) | Registration and provisioning |
+| [`account.chats.messages.create`](/v3/reference/account-chats-messages-create) | The agent working through your prompt |
+
+Everything else in v3 is synchronous — it either succeeds or errors on the spot.

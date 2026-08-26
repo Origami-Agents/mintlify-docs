@@ -7,6 +7,8 @@
 - Pages are MDX files with YAML frontmatter
 - Configuration lives in `docs.json`
 - API reference is auto-generated from `openapi-v3.yaml` (current), `openapi-v2.yaml`, and `openapi-v1.yaml`
+- `openapi-v3.yaml` is generated upstream in paper-crane. Do not hand-edit it — regenerate there, then run `python3 scripts/adjust-openapi-v3.py`
+- That script owns the plain-English page and sidebar titles for every v3 endpoint (the `TITLES` table). A new upstream operation prints a warning until you add one
 - Webhook events are auto-generated from `openapi-webhooks.yaml` (sequencer + tables) and `openapi-webhooks-jobs.yaml` (v3 Job events)
 - Run `mint dev` to preview locally
 

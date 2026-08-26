@@ -1,0 +1,232 @@
+---
+title: "Build a list"
+sidebarTitle: "Leads"
+description: "Three ways to get people into a list, how columns research them, and how to read the results."
+---
+
+A **list** is a grid of people: rows are prospects, columns are facts about them.
+Every Leads endpoint either puts rows in, defines what to find out about them, or
+reads them back.
+
+## Getting rows in
+
+Pick whichever matches where your people come from.
+
+<Tabs>
+  <Tab title="From a brief">
+    You describe who you want in a sentence. Origami creates the list, picks
+    columns from your description, sources matching people, and researches them.
+
+    ```bash
+    curl -X POST https://origami.chat/api/v3/leads/searches \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "brief": "Heads of RevOps at 50-500 person US SaaS companies",
+        "count": 25
+      }'
+    ```
+
+    Returns a Job. When it succeeds, `result` carries the new `list_id`, a
+    `search_id`, and the `row_ids` it added. This is the path the
+    [quickstart](/v3/quickstart) walks through.
+
+    There is no filter DSL — the brief *is* the query. Be specific about title,
+    company size, geography, and industry, and mention anything you want as a
+    column ("and whether they use HubSpot").
+  </Tab>
+
+  <Tab title="Into a list you shaped">
+    Create the list first, add the columns you care about, then source into it.
+    Use this when you want control over the schema, or when several searches
+    should land in the same place.
+
+    ```bash
+    LIST_ID=$(curl -sS -X POST https://origami.chat/api/v3/leads/lists \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "RevOps leads Q3"}' | jq -r '.id')
+
+    curl -X POST "https://origami.chat/api/v3/leads/lists/$LIST_ID/fetch" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "brief": "Heads of RevOps at 50-500 person US SaaS companies",
+        "count": 25,
+        "quality": "accurate"
+      }'
+    ```
+
+    `fetch` reuses the columns already on the list instead of inventing new ones.
+  </Tab>
+
+  <Tab title="Your own data">
+    Already have the people — a CRM export, a webinar signup list? Upsert them
+    and let Origami's columns do the research.
+
+    ```bash
+    curl -X POST "https://origami.chat/api/v3/leads/lists/$LIST_ID/rows/upsert" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "match_columns": ["email"],
+        "enrich": true,
+        "rows": [
+          {"email": "dana@northwind.io", "name": "Dana Okafor"},
+          {"email": "sam@lattice-labs.com", "name": "Sam Reyes"}
+        ]
+      }'
+    ```
+
+    `match_columns` is how rows are deduplicated: a row whose `email` already
+    exists is updated rather than added. Up to 1,000 rows per call.
+
+    This one is **synchronous** — you get the result immediately. With
+    `enrich: true` the response also embeds an enrichment Job for the research
+    it kicked off.
+  </Tab>
+</Tabs>
+
+### Asking for more of the same
+
+A list keeps the search behind it, including how much of the matching pool is
+left. To go deeper, continue the search instead of writing the brief again:
+
+```bash
+curl -X POST "https://origami.chat/api/v3/leads/lists/$LIST_ID/fetch-more" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"count": 100, "exclude_list_ids": ["'"$ALREADY_CONTACTED_LIST"'"]}'
+```
+
+Same criteria, same list, same columns, no repeats. Check
+[`GET /leads/searches/{search_id}`](/v3/reference/leads-searches-get) first if
+you want to know how deep the pool goes — `remaining_count` and `has_more` tell
+you before you spend anything.
+
+<Tip>
+  Start at `count: 10`, look at the rows, adjust the brief, *then* ask for
+  hundreds. A search you refine early is much cheaper than one you re-run.
+</Tip>
+
+### fast vs accurate
+
+`quality` decides how hard Origami works to verify each lead.
+
+| | `fast` | `accurate` |
+| --- | --- | --- |
+| Speed | Quicker | Slower |
+| Verification | Lighter | Deeper |
+| Billing | Settles immediately | Settles after delivery, so `credits.spent` can adjust down |
+
+On an `accurate` run the Job reports `credits.settled: false` until the final
+number is known. Reconcile billing after it flips to `true`.
+
+## Columns do the research
+
+Columns are the questions you're asking about every row. Three kinds:
+
+| Kind | What it does | How you get one |
+| --- | --- | --- |
+| **Code** | Runs Origami's research. These are what spend credits. | [Copy from another list](/v3/reference/leads-lists-columns-copy) — or let a search create them from your brief |
+| **Score** | Rates each row for fit and feeds `relevance_score` | [`POST …/columns`](/v3/reference/leads-lists-columns-create) with `type: "score"` |
+| **Static** | Holds values you write | [`POST …/columns`](/v3/reference/leads-lists-columns-create) with `type: "static"` |
+
+Copying is how you standardize. Build the research columns you like on one list,
+then copy them onto every new one:
+
+```bash
+curl -X POST "https://origami.chat/api/v3/leads/lists/$LIST_ID/columns/copy" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_list_id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+    "source_column_id": "b7e1c2a3-4d5f-4a6b-8c9d-0e1f2a3b4c5d"
+  }'
+```
+
+If the column you copy depends on other columns, bring those too — otherwise
+you get `409 MISSING_DEPENDENCY_COLUMNS`.
+
+Score columns carry a `relevance_weight` from `very_low` to `required`. Set it
+with [`PATCH …/columns/{column_id}`](/v3/reference/leads-lists-columns-patch);
+`required` makes a failing row score zero.
+
+### Filling cells in
+
+Enrichment always returns a Job.
+
+```bash
+# Fill specific columns, or omit column_slugs for everything auto-triggered
+curl -X POST "https://origami.chat/api/v3/leads/lists/$LIST_ID/enrich" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"column_slugs": ["uses_hubspot", "funding_stage"]}'
+```
+
+Restrict it to certain rows with `row_ids`, or pass `reenrich: true` to redo
+cells that already have values.
+
+Need something that isn't a column yet? Describe it and let Origami add the
+column and fill it in one call:
+
+```bash
+curl -X POST "https://origami.chat/api/v3/leads/lists/$LIST_ID/enrich_custom" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"instructions": "Do they publish a public engineering blog? Yes or no."}'
+```
+
+## Reading rows back
+
+```bash
+curl "https://origami.chat/api/v3/leads/lists/$LIST_ID/rows?min_relevance_score=70&sort=relevance_score&order=desc&limit=100" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+Reads are free — they don't spend credits. The filters that matter:
+
+| Parameter | Use |
+| --- | --- |
+| `ids` | Read exactly the rows a Job returned. Max 100 per call. |
+| `min_relevance_score` | Keep only rows above a fit threshold |
+| `sort` / `order` | `relevance_score` or `created_at`, either direction |
+| `include_duplicates`, `include_excluded`, `include_disapproved` | Hidden rows are filtered out by default. Set these to see them. |
+| `format=csv` | Export the whole thing as CSV instead of JSON |
+| `cursor` / `limit` | Page through, up to 100 at a time |
+
+Rows that are deduplicated, excluded, or disapproved stay in the list but are
+hidden from normal reads — that's why a `total` in the app can be larger than
+what you page through.
+
+For the funnel behind those numbers — how many were sourced, how many survived
+qualification, what it cost — use
+[`GET /leads/lists/{list_id}/stats`](/v3/reference/leads-lists-stats-get).
+
+## Keeping people out
+
+Exclusion lists are checked when leads are sourced and again when people are
+enrolled in a campaign. Add your customers, your competitors, and anyone who
+opted out:
+
+```bash
+curl -X POST https://origami.chat/api/v3/account/exclusion-lists/people \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"entries": [{"email": "dana@northwind.io"}, {"company_domain": "acme.com"}]}'
+```
+
+They live under Account because they're organization-wide — see
+[account setup](/v3/account#exclusion-lists). For a one-off "not these people
+again," pass `exclude_list_ids` on the search instead.
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Run a campaign" icon="send" href="/v3/send">
+    Turn the list into outreach.
+  </Card>
+  <Card title="The Job object" icon="file-json" href="/v3/jobs">
+    What to do while sourcing and enrichment run.
+  </Card>
+</CardGroup>

@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """Adjust paper-crane's generated openapi-v3.yaml for Mintlify.
 
-The catalog emits Express-style `{id}` path templates while the path
-parameter is named `job_id` / `list_id` / `campaign_id` / …. Mintlify
-requires the template name to match the parameter name.
+Three jobs:
 
-Also rewrites `/jobs/{id}` mentions in prose and prepends a Mintlify
-adjustment note to the file header.
+1. The catalog emits Express-style `{id}` path templates while the path
+   parameter is named `job_id` / `list_id` / `campaign_id` / …. Mintlify
+   requires the template name to match the parameter name.
+2. Every operation gets an `x-mint` block: a stable `href` so guide pages
+   can link `/v3/reference/<operation-id>`, plus `metadata` that gives the
+   generated page a plain-English title and keeps the terse catalog
+   `summary` as the page subtitle. Without this the sidebar reads as a
+   list of catalog identifiers instead of a list of things you can do.
+3. Rewrites `/jobs/{id}` mentions in prose and prepends a Mintlify
+   adjustment note to the file header.
+
+The script is idempotent — it strips any `x-mint` block it previously
+wrote before injecting a fresh one, so re-running after a regenerate is
+always safe.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -26,6 +37,167 @@ HEADER_NOTE = (
     "# than Express `:id`. Do not hand-merge back into paper-crane — regenerate\n"
     "# there, then re-run scripts/adjust-openapi-v3.py.\n"
 )
+
+# Plain-English page titles, keyed by operationId. The catalog's own
+# `summary` stays on the operation (generators and the API playground use
+# it) and is surfaced as the page description; this is what a reader sees
+# in the sidebar and as the page heading. Keep entries short and concrete
+# — "Enroll people", not "send.campaigns.people.upsert".
+TITLES = {
+    # ── Jobs ──────────────────────────────────────────────────────────────
+    "jobs.list": "List jobs",
+    "jobs.get": "Get a job",
+    "jobs.cancel": "Cancel a job",
+    "jobs.input": "Answer a job's questions",
+
+    # ── Account: org ──────────────────────────────────────────────────────
+    "account.get": "Get your account",
+    "account.credits.get": "Credit balance",
+    "account.credits.usage": "Credit usage",
+    "account.rate_limits.get": "Rate limits",
+
+    # ── Account: projects ─────────────────────────────────────────────────
+    "account.projects.list": "List projects",
+    "account.projects.create": "Create a project",
+    "account.projects.get": "Get a project",
+    "account.projects.patch": "Update a project",
+    "account.projects.delete": "Delete a project",
+
+    # ── Account: chats ────────────────────────────────────────────────────
+    "account.chats.list": "List chats",
+    "account.chats.create": "Create a chat",
+    "account.chats.get": "Get a chat",
+    "account.chats.patch": "Rename a chat",
+    "account.chats.archive": "Archive a chat",
+    "account.chats.links.create": "Link a list or campaign",
+    "account.chats.links.delete": "Unlink a list or campaign",
+    "account.chats.messages.create": "Send a chat message",
+
+    # ── Account: senders ──────────────────────────────────────────────────
+    "account.senders.list": "List senders",
+    "account.senders.get": "Get a sender",
+    "account.senders.patch": "Update a sender",
+    "account.senders.delete": "Disconnect a sender",
+    "account.senders.warmup.enable": "Turn warmup on",
+    "account.senders.warmup.disable": "Turn warmup off",
+    "account.senders.imap.create": "Connect an SMTP/IMAP mailbox",
+    "account.senders.connect": "Connect via OAuth",
+    "account.senders.reconnect": "Reconnect a sender",
+    "account.senders.send_as_aliases.list": "List send-as aliases",
+
+    # ── Account: domains & mailboxes ──────────────────────────────────────
+    "account.domains.search": "Search for domains",
+    "account.domains.list": "List your domains",
+    "account.domains.get": "Get a domain",
+    "account.domains.purchase": "Buy domains",
+    "account.domains.renewal.cancel": "Turn off auto-renewal",
+    "account.domains.renewal.undo": "Turn auto-renewal back on",
+    "account.domains.forwarding.set": "Set domain forwarding",
+    "account.mailboxes.list": "List mailboxes",
+    "account.mailboxes.provision": "Create mailboxes",
+
+    # ── Account: exclusion lists ──────────────────────────────────────────
+    "account.exclusion_lists.get": "Get exclusion settings",
+    "account.exclusion_lists.patch": "Switch exclusion source",
+    "account.exclusion_lists.people.list": "List excluded people",
+    "account.exclusion_lists.people.add": "Exclude people",
+    "account.exclusion_lists.people.clear": "Clear excluded people",
+    "account.exclusion_lists.people.delete": "Un-exclude one person",
+    "account.exclusion_lists.companies.list": "List excluded companies",
+    "account.exclusion_lists.companies.add": "Exclude companies",
+    "account.exclusion_lists.companies.clear": "Clear excluded companies",
+    "account.exclusion_lists.companies.delete": "Un-exclude one company",
+
+    # ── Account: webhooks ─────────────────────────────────────────────────
+    "account.webhooks.list": "List endpoints",
+    "account.webhooks.create": "Create an endpoint",
+    "account.webhooks.get": "Get an endpoint",
+    "account.webhooks.patch": "Update an endpoint",
+    "account.webhooks.delete": "Delete an endpoint",
+    "account.webhooks.rotate": "Rotate the signing secret",
+    "account.webhooks.test": "Send a test event",
+
+    # ── Account: API keys ─────────────────────────────────────────────────
+    "account.keys.list": "List API keys",
+    "account.keys.create": "Create an API key",
+    "account.keys.revoke": "Revoke an API key",
+
+    # ── Leads: lists ──────────────────────────────────────────────────────
+    "leads.lists.list": "List your lists",
+    "leads.lists.create": "Create an empty list",
+    "leads.lists.get": "Get a list",
+    "leads.lists.patch": "Rename a list",
+    "leads.lists.delete": "Delete a list",
+    "leads.lists.stats.get": "List stats",
+    "leads.lists.fetch": "Find leads for a list",
+    "leads.lists.fetch_more": "Find more leads",
+    "leads.lists.enrich": "Enrich existing columns",
+    "leads.lists.enrich_custom": "Enrich from instructions",
+
+    # ── Leads: columns ────────────────────────────────────────────────────
+    "leads.lists.columns.create": "Add a column",
+    "leads.lists.columns.copy": "Copy a column",
+    "leads.lists.columns.patch": "Update a column",
+    "leads.lists.columns.delete": "Delete a column",
+
+    # ── Leads: rows ───────────────────────────────────────────────────────
+    "leads.lists.rows.list": "Read rows",
+    "leads.lists.rows.get": "Read one row",
+    "leads.lists.rows.upsert": "Add or update rows",
+    "leads.lists.rows.delete": "Delete rows",
+    "leads.lists.rows.cells.get": "Read one cell",
+
+    # ── Leads: searches ───────────────────────────────────────────────────
+    "leads.searches.create": "Search for leads",
+    "leads.searches.get": "Get a search",
+    "leads.searches.fetch_more": "Fetch more results",
+
+    # ── Send: campaigns ───────────────────────────────────────────────────
+    "send.campaigns.list": "List campaigns",
+    "send.campaigns.create": "Create a campaign",
+    "send.campaigns.get": "Get a campaign",
+    "send.campaigns.delete": "Delete a campaign",
+    "send.campaigns.stats.get": "Campaign stats",
+    "send.campaigns.draft": "Draft from a brief",
+    "send.campaigns.launch": "Launch a campaign",
+    "send.campaigns.pause": "Pause a campaign",
+    "send.campaigns.resume": "Resume a campaign",
+    "send.campaigns.settings.get": "Get settings",
+    "send.campaigns.settings.patch": "Update settings",
+    "send.campaigns.senders.list": "List campaign senders",
+    "send.campaigns.senders.add": "Add a sender",
+    "send.campaigns.senders.remove": "Remove a sender",
+
+    # ── Send: people ──────────────────────────────────────────────────────
+    "send.campaigns.people.schema.get": "Get the person fields",
+    "send.campaigns.people.schema.put": "Set the person fields",
+    "send.campaigns.people.list": "List enrolled people",
+    "send.campaigns.people.upsert": "Enroll people",
+    "send.campaigns.people.get": "Get one person",
+    "send.campaigns.people.delete": "Delete a person",
+    "send.campaigns.people.contact.patch": "Update contact details",
+    "send.campaigns.people.steps.patch": "Edit one message",
+    "send.campaigns.people.remove": "Cancel a sequence",
+    "send.campaigns.people.stop": "Stop a sequence",
+    "send.campaigns.people.remove_bulk": "Cancel sequences in bulk",
+    "send.campaigns.people.revert": "Undo edits to a person",
+    "send.campaigns.people.sender.pin": "Pin a sender to a person",
+    "send.campaigns.people.sender.unpin": "Unpin a person's sender",
+
+    # ── Send: templates ───────────────────────────────────────────────────
+    "send.campaigns.templates.get": "Get the template",
+    "send.campaigns.templates.put": "Replace the template",
+    "send.campaigns.templates.clear": "Clear the template",
+    "send.campaigns.templates.sequences.append": "Add a variant",
+    "send.campaigns.templates.sequences.patch": "Update a variant",
+    "send.campaigns.templates.sequences.delete": "Delete a variant",
+
+    # ── Send: previews & approvals ────────────────────────────────────────
+    "send.campaigns.examples.list": "Read generated messages",
+    "send.campaigns.examples.generate": "Generate messages",
+    "send.campaigns.approvals.list": "List messages awaiting approval",
+    "send.campaigns.approvals.approve": "Approve messages",
+}
 
 
 def collect_renames(doc: dict) -> dict[str, str]:
@@ -70,20 +242,77 @@ def prepend_header(text: str) -> str:
     return "".join(lines)
 
 
-def inject_x_mint(text: str) -> str:
-    """Stable hrefs so guide pages can link `/v3/reference/<operation-id>`."""
-    lines = text.splitlines(keepends=True)
+def strip_x_mint(text: str) -> str:
+    """Remove x-mint blocks we wrote previously so injection is idempotent."""
     out: list[str] = []
-    for line in lines:
+    skipping = False
+    for line in text.splitlines(keepends=True):
+        if skipping:
+            # The block ends at the first line indented less than its children.
+            if line.startswith(" " * 8) or not line.strip():
+                continue
+            skipping = False
+        if re.match(r"^      x-mint:\n$", line):
+            skipping = True
+            continue
+        out.append(line)
+    return "".join(out)
+
+
+def collect_summaries(doc: dict) -> dict[str, str]:
+    """operationId -> summary, read from the parsed doc.
+
+    Summaries can be folded across lines in the YAML, so they are taken
+    from the parsed document rather than scraped off the text.
+    """
+    summaries: dict[str, str] = {}
+    for methods in doc["paths"].values():
+        for op in methods.values():
+            if isinstance(op, dict) and op.get("operationId"):
+                summaries[op["operationId"]] = op.get("summary", "")
+    return summaries
+
+
+def inject_x_mint(text: str, summaries: dict[str, str]) -> str:
+    """Give every operation a stable href and a readable title.
+
+    `href` keeps guide links like `/v3/reference/leads-searches-create`
+    working no matter how docs.json groups the endpoints. `metadata.title`
+    sets the page heading and `metadata.sidebarTitle` the sidebar entry —
+    both are needed, since the sidebar otherwise falls back to the
+    operationId. `metadata.description` carries the catalog summary as the
+    subtitle underneath the heading.
+    """
+    out: list[str] = []
+    unmapped: list[str] = []
+    for line in text.splitlines(keepends=True):
         m = re.match(r"^(      )operationId: ([A-Za-z0-9_.]+)\n$", line)
         if m:
-            prev = "".join(out[-4:])
-            if "x-mint:" not in prev:
-                indent, op = m.group(1), m.group(2)
-                href = "/v3/reference/" + op.replace(".", "-").replace("_", "-")
-                out.append(f"{indent}x-mint:\n")
-                out.append(f"{indent}  href: {href}\n")
+            indent, op = m.group(1), m.group(2)
+            href = "/v3/reference/" + op.replace(".", "-").replace("_", "-")
+            title = TITLES.get(op)
+            if title is None:
+                unmapped.append(op)
+                # Fall back to the id minus its section, e.g. "rows upsert".
+                title = op.split(".", 1)[-1].replace(".", " ").replace("_", " ")
+                title = title[:1].upper() + title[1:]
+            out.append(f"{indent}x-mint:\n")
+            out.append(f"{indent}  href: {href}\n")
+            out.append(f"{indent}  metadata:\n")
+            out.append(f"{indent}    title: {json.dumps(title)}\n")
+            # sidebarTitle is not optional here: without it Mintlify labels the
+            # sidebar entry from the operationId ("Account senders imap create")
+            # rather than from the page title.
+            out.append(f"{indent}    sidebarTitle: {json.dumps(title)}\n")
+            summary = summaries.get(op, "")
+            if summary:
+                out.append(f"{indent}    description: {json.dumps(summary)}\n")
         out.append(line)
+    if unmapped:
+        print(f"warning: no title mapped for {len(unmapped)} operations:")
+        for op in unmapped:
+            print(f"  - {op}")
+        print("Add them to TITLES in this script.")
     return "".join(out)
 
 
@@ -149,7 +378,7 @@ def main() -> int:
     text = apply_renames(text, renames)
     text = prepend_header(text)
     text = expand_info_description(text)
-    text = inject_x_mint(text)
+    text = inject_x_mint(strip_x_mint(text), collect_summaries(doc))
     SPEC.write_text(text)
 
     adjusted = yaml.safe_load(text)

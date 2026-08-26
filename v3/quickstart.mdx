@@ -3,9 +3,12 @@ title: "Quickstart"
 description: "Find leads with a brief, poll the Job, and read the rows back."
 ---
 
-This walkthrough runs a one-shot search: Origami creates a list, sources leads
-from your brief, enriches them, and returns the row ids. To enroll those leads
-in a campaign instead, see the [Send endpoints](/v3/reference/send-campaigns-create).
+Three requests, about five minutes: describe who you want, wait for Origami to
+go find them, read them back. That's the whole loop, and every other Leads flow
+is a variation on it.
+
+New to the API? [The overview](/v3/overview) explains how the pieces fit
+together first.
 
 <Tip>
   Building with an AI coding assistant? Download the
@@ -17,6 +20,7 @@ in a campaign instead, see the [Send endpoints](/v3/reference/send-campaigns-cre
 
 - An Origami account on a paid plan
 - An API key (create one in **Settings → Developers**)
+- `curl` and `jq`
 
 ```bash
 export ORIGAMI_API_KEY=og_live_your_key_here
@@ -25,8 +29,8 @@ export ORIGAMI_API_KEY=og_live_your_key_here
 ## Step 1: Start a search
 
 [`POST /leads/searches`](/v3/reference/leads-searches-create) creates a list,
-sources leads, and enriches them. The brief is the steer — there is no filter
-DSL.
+sources leads, and researches them — all from one sentence. The brief is the
+steer; there is no filter DSL, so say what you'd say to a researcher.
 
 ```bash
 curl -X POST https://origami.chat/api/v3/leads/searches \
@@ -38,8 +42,8 @@ curl -X POST https://origami.chat/api/v3/leads/searches \
   }'
 ```
 
-You get `202 Accepted` with a Job already `running`. Keep `id` — you'll poll it
-next.
+You get `202 Accepted` with a Job already `running`. Nothing is finished yet —
+keep `id`, that's what you poll next.
 
 ```json
 {
@@ -77,8 +81,9 @@ done
 echo "$RESP" | jq .
 ```
 
-A sourcing Job stays `running` with `phase: "enriching"` until the cells it
-owns finish. When `status` is `succeeded`, result counts are final.
+A sourcing Job stays `running` with `phase: "enriching"` until the cells it owns
+finish, so `succeeded` genuinely means done — result counts won't move
+afterwards. Expect a few minutes for 25 leads.
 
 ```json
 {
@@ -103,8 +108,8 @@ read the Job when the event arrives.
 
 ## Step 3: Read the rows
 
-Use `result.row_ids` to read exactly the rows this run added. Cap is 100 ids
-per call.
+`result.row_ids` are exactly the rows this run added, so you can read them
+without paging the whole list. Reads are free. Cap is 100 ids per call.
 
 ```bash
 curl "https://origami.chat/api/v3/leads/lists/$LIST_ID/rows?ids=$ROW_ID" \
@@ -132,10 +137,25 @@ To export the whole list, pass `format=csv` on the same endpoint.
 
 ## What's next
 
-- Start small (`count: 10`), inspect rows, then
-  [`fetch-more`](/v3/reference/leads-searches-fetch-more) on the same search.
-- Prefer a list you already shaped? Create it, add columns, then
-  [`POST /leads/lists/{list_id}/fetch`](/v3/reference/leads-lists-fetch).
-- Enroll the list in a campaign with the
-  [Send recipe](/v3/reference/send-campaigns-create).
-- Read [the Job object](/v3/jobs) for `needs_input`, cancel, and credits.
+You now have a list with 23 researched rows in it. From here:
+
+<CardGroup cols={2}>
+  <Card title="Build a list" icon="table" href="/v3/leads">
+    Go deeper on the same search, bring your own rows, add research columns.
+  </Card>
+  <Card title="Run a campaign" icon="send" href="/v3/send">
+    Enroll this list in an email or LinkedIn sequence.
+  </Card>
+  <Card title="The Job object" icon="file-json" href="/v3/jobs">
+    Cancelling, credits, and the questions a Job can ask you.
+  </Card>
+  <Card title="Conventions" icon="list-checks" href="/v3/conventions">
+    Paging, errors, idempotency, and destructive-call previews.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Start at `count: 10`, read the rows, refine the brief, and only then ask for
+  hundreds with [`fetch-more`](/v3/reference/leads-searches-fetch-more) on the
+  same search. Refining early is much cheaper than re-running.
+</Tip>

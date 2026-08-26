@@ -1,0 +1,164 @@
+---
+title: "Conventions"
+description: "The rules that hold on every endpoint: paging, errors, previews, retries, and project scoping."
+---
+
+Learn these once and every endpoint behaves the way you expect.
+
+## Fields are snake_case, and typos are loud
+
+Requests and responses use `snake_case`. Unknown request fields are **rejected**,
+not ignored — a camelCase body fails with `400 VALIDATION_ERROR` rather than
+silently doing nothing.
+
+```json
+{ "error": "Unknown field: listId", "code": "VALIDATION_ERROR" }
+```
+
+That's deliberate. A misspelled optional field is a bug you want to hear about
+on the first call, not after a campaign goes out with the wrong settings.
+
+## Every collection pages the same way
+
+List endpoints return one envelope:
+
+```json
+{
+  "object": "list",
+  "items": [],
+  "next_cursor": "eyJpZCI6IjAxOTIu…",
+  "url": "/api/v3/leads/lists"
+}
+```
+
+Pass `next_cursor` back as `cursor` to get the next page. `null` means you're
+on the last one. `limit` defaults sensibly and caps at 100.
+
+```bash
+curl "https://origami.chat/api/v3/leads/lists?limit=50&cursor=$NEXT" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+## Slow work returns a Job
+
+Anything that can't finish inside a request returns `202` with a Job instead of
+making you wait: sourcing leads, enrichment, generating copy, buying domains,
+provisioning mailboxes, chat messages.
+
+Poll [`GET /jobs/{job_id}`](/v3/reference/jobs-get) honoring `next_poll_at`, or
+subscribe to [`job.*` webhooks](/webhooks/overview) and skip polling entirely.
+
+<Card title="The Job object" icon="file-json" href="/v3/jobs" horizontal>
+  Statuses, polling, cancelling, credits, and needs_input.
+</Card>
+
+## Destructive calls preview first
+
+Operations that delete things or spend money return a **preview** of what would
+happen unless you pass `confirm=true`. Nothing is destroyed and no card is
+charged on the preview call.
+
+```bash
+# What would this take with it?
+curl -X DELETE "https://origami.chat/api/v3/leads/lists/$LIST_ID" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+
+# Actually do it
+curl -X DELETE "https://origami.chat/api/v3/leads/lists/$LIST_ID?confirm=true" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+`confirm=true` applies to deleting a [list](/v3/reference/leads-lists-delete),
+[project](/v3/reference/account-projects-delete), or
+[campaign](/v3/reference/send-campaigns-delete), removing a
+[campaign sender](/v3/reference/send-campaigns-senders-remove), clearing an
+[exclusion list](/v3/reference/account-exclusion-lists-people-clear) or a
+[template](/v3/reference/send-campaigns-templates-clear), and
+[buying domains](/v3/reference/account-domains-purchase), where the preview
+comes back priced.
+
+Some operations use a `dry_run` body flag for the same idea:
+[launching a campaign](/v3/reference/send-campaigns-launch) with
+`{"dry_run": true}` reports exactly the gates a real launch would check, and
+removing or stopping a person reports what it would affect.
+
+## Retries are safe if you ask for it
+
+Any `POST` may carry an `Idempotency-Key` header. Replaying the same key with
+the same body returns the original result instead of doing the work twice.
+
+```bash
+curl -X POST https://origami.chat/api/v3/leads/searches \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Idempotency-Key: 8a1f0c3e-91d2-4c4a-8b7f-2e6d5a09c113" \
+  -H "Content-Type: application/json" \
+  -d '{"brief": "Heads of RevOps at 50-500 person US SaaS companies", "count": 25}'
+```
+
+| Response | Meaning |
+| --- | --- |
+| `409 IDEMPOTENCY_MISMATCH` | Same key, different body. Use a new key. |
+| `409 IDEMPOTENCY_PENDING` | The first attempt is still in flight. Honor `Retry-After`. |
+
+Use one key per logical operation — a UUID generated when your job starts, not
+per HTTP attempt.
+
+## Errors have one shape
+
+```json
+{
+  "error": "Connect a sending account before launching.",
+  "code": "ACCOUNT_CONNECTION_REQUIRED",
+  "handoff": {
+    "kind": "connect-accounts",
+    "url": "https://origami.chat/settings/accounts",
+    "label": "Connect a mailbox"
+  }
+}
+```
+
+`error` is for humans, `code` is for your `switch` statement. Branch on `code` —
+the message text can change.
+
+`handoff` appears when a person can fix the problem in the Origami dashboard but
+your code can't: connecting a mailbox, re-authorizing one that expired, adding a
+payment method, upgrading a plan, or confirming a card charge. Forward the URL
+to whoever owns the account rather than treating it as a hard failure.
+
+| Status | What it usually means |
+| --- | --- |
+| `400 VALIDATION_ERROR` | Bad or unknown field. The `details` object says which. |
+| `401` | Missing, revoked, or malformed API key. |
+| `402 SUBSCRIPTION_REQUIRED` | Your plan doesn't include API access. |
+| `403` | A `member` key hit an admin-only operation. |
+| `404` | Wrong id, or the resource is in a different project. |
+| `409` | A state conflict — the `code` names it, e.g. `SEARCH_BUSY`, `NO_TEMPLATE`, `JOB_NOT_CANCELLABLE`. |
+| `429` | Rate limited or out of agent-run slots. Honor `Retry-After`. |
+
+## Scoping to a project
+
+Keys are parent-wide. Send `x-origami-project: <project_id>` to act inside a
+child project instead of the parent:
+
+```bash
+curl https://origami.chat/api/v3/leads/lists \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "x-origami-project: 3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90"
+```
+
+The header applies to Leads, Send, Jobs, and — within Account — chats and
+exclusion lists. It is ignored by project management, org reads, senders,
+domains, mailboxes, webhooks, and API-key routes, which are always
+parent-scoped.
+
+## Rate limits
+
+300 requests/minute per IP and 100/minute per organization, both keyed to the
+parent org even for project-scoped requests. The binding constraint for agent
+work is usually concurrent runs, not requests — exceeding that returns
+`429 CONCURRENT_LIMIT_EXCEEDED`.
+
+Check where you stand at any time with
+[`GET /account/rate-limits`](/v3/reference/account-rate-limits-get). Full
+details, including response headers, are in
+[authentication](/authentication#rate-limits).

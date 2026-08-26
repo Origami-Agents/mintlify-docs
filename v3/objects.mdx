@@ -1,0 +1,212 @@
+---
+title: "Objects"
+description: "Every noun in the v3 API: what it is, what creates it, and what it belongs to."
+---
+
+The API has about a dozen objects. Most of them you never create directly —
+they appear as a side effect of asking for something. This page is the map.
+
+Every object carries an `object` field naming its type, so a response is always
+self-identifying:
+
+```json
+{ "object": "list", "id": "d290f1ee-6c54-4b01-90e6-d701748f0851", "name": "RevOps leads" }
+```
+
+## Leads objects
+
+<AccordionGroup>
+  <Accordion title="List — a grid of prospects" icon="table" defaultOpen>
+    A list holds rows (people) and columns (facts about them). It is the unit
+    everything in Leads hangs off, and the thing you hand to a campaign.
+
+    **Comes from** [`POST /leads/lists`](/v3/reference/leads-lists-create) for an
+    empty one, or [`POST /leads/searches`](/v3/reference/leads-searches-create),
+    which creates a list and fills it in one call.
+
+    <Note>
+      A list is what v1 and v2 called a **table**. Rows, columns, and credits
+      work the same way; the URLs and field names changed.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Row — one person" icon="user">
+    A person in a list, plus their cells and status flags
+    (`relevance_score`, `is_deduplicated`, `is_excluded`).
+
+    **Comes from** a search or fetch that sources people, or from
+    [`POST /leads/lists/{list_id}/rows/upsert`](/v3/reference/leads-lists-rows-upsert)
+    when you bring your own data.
+  </Accordion>
+
+  <Accordion title="Column — one fact per row" icon="columns-3">
+    A column defines something you want to know about every row: their funding
+    stage, whether they use Salesforce, a fit score. Cells are the values, one
+    per row per column.
+
+    **Comes from** the search that created the list (it picks columns from your
+    brief), [`POST /leads/lists/{list_id}/columns`](/v3/reference/leads-lists-columns-create)
+    for a static or score column,
+    [`POST /leads/lists/{list_id}/enrich_custom`](/v3/reference/leads-lists-enrich-custom)
+    to add one from instructions, or
+    [`POST /leads/lists/{list_id}/columns/copy`](/v3/reference/leads-lists-columns-copy)
+    to reuse one from another list.
+
+    Columns come in three flavors. **Code** columns run Origami's own research
+    and are the ones that spend credits — you get them by copying from another
+    list. **Score** columns rate a row for fit and carry a
+    `relevance_weight`. **Static** columns just hold values you write.
+  </Accordion>
+
+  <Accordion title="Search — the criteria behind a list" icon="search">
+    A search remembers the brief you wrote and how deep the matching pool still
+    is (`remaining_count`, `has_more`, `tam_known`). Ask for more leads and it
+    continues where it left off instead of starting over.
+
+    **Comes from** [`POST /leads/searches`](/v3/reference/leads-searches-create)
+    or [`POST /leads/lists/{list_id}/fetch`](/v3/reference/leads-lists-fetch).
+    A list has at most one active search.
+  </Accordion>
+</AccordionGroup>
+
+## Send objects
+
+<AccordionGroup>
+  <Accordion title="Campaign — a sequence plus everyone in it" icon="send" defaultOpen>
+    A campaign bundles the people you're contacting, the template they get, the
+    senders it goes out from, and the schedule. It moves through `draft` →
+    `active` → `paused`.
+
+    **Comes from** [`POST /send/campaigns`](/v3/reference/send-campaigns-create)
+    for a blank draft, or
+    [`POST /send/campaigns/draft`](/v3/reference/send-campaigns-draft), which
+    writes the schema and templates from a brief.
+  </Accordion>
+
+  <Accordion title="Person — one enrolled prospect and their sequence" icon="user-check">
+    Each enrolled person has a `sequence_id`, contact details, per-step state,
+    and the exact copy that was rendered for them. Most `people` operations
+    address one by `sequence_id`.
+
+    **Comes from** [`POST /send/campaigns/{campaign_id}/people`](/v3/reference/send-campaigns-people-upsert),
+    either by pointing at a list (`list_id`, optionally specific `row_ids`) or
+    by passing people inline.
+  </Accordion>
+
+  <Accordion title="Person schema — the columns of the People tab" icon="columns-3">
+    A list of `{ key, description, required }` fields declaring what context
+    each person carries into the template. `{ "fields": [] }` means
+    identity-only.
+
+    **Comes from** [`PUT /send/campaigns/{campaign_id}/people/schema`](/v3/reference/send-campaigns-people-schema-put),
+    or gets written for you by `campaigns.draft`. Set it before enrolling people
+    so their `context` has somewhere to land.
+  </Accordion>
+
+  <Accordion title="Template — the messages, before personalization" icon="file-pen">
+    A template is a set of **variants** (A/B arms). Each variant has an
+    `instructions` steer and a list of **steps**: a channel, a body, a
+    `delay_days`, and which parts should be personalized per recipient. Every
+    variant keeps a `variant_key` that is never reused.
+
+    **Comes from** [`PUT /send/campaigns/{campaign_id}/templates`](/v3/reference/send-campaigns-templates-put)
+    to replace the whole thing, or
+    [`POST /send/campaigns/{campaign_id}/templates/sequences`](/v3/reference/send-campaigns-templates-sequences-append)
+    to add one variant at a time.
+  </Accordion>
+
+  <Accordion title="Generated message — the copy one person will actually get" icon="mail-open">
+    The template rendered against a specific person. Generate these before
+    launch to read what will go out, and edit any step that isn't right.
+
+    **Comes from** [`POST /send/campaigns/{campaign_id}/examples`](/v3/reference/send-campaigns-examples-generate).
+    One LLM call per person, so it returns a Job.
+  </Accordion>
+</AccordionGroup>
+
+## Account objects
+
+<AccordionGroup>
+  <Accordion title="Sender — a mailbox or LinkedIn account that sends" icon="at-sign" defaultOpen>
+    Senders belong to the organization, not to a campaign. Connect one once,
+    then add it to as many campaigns as you like. Each carries its own daily
+    limit, signature, timezone, and gap settings.
+
+    **Comes from** [`POST /account/senders/connect`](/v3/reference/account-senders-connect)
+    for Google, Microsoft, or LinkedIn (OAuth finishes in the browser — you get
+    a handoff URL), or
+    [`POST /account/senders/imap`](/v3/reference/account-senders-imap-create)
+    for any SMTP/IMAP mailbox. Credentials are write-only and never returned.
+  </Accordion>
+
+  <Accordion title="Domain and mailbox — sending infrastructure Origami runs" icon="globe">
+    If you don't want to burn your primary domain on cold outreach, buy
+    lookalike domains through Origami and provision mailboxes on them. A
+    provisioned mailbox becomes a sender.
+
+    **Comes from** [`POST /account/domains/purchase`](/v3/reference/account-domains-purchase)
+    (charges the card on file) and then
+    [`POST /account/mailboxes`](/v3/reference/account-mailboxes-provision).
+  </Accordion>
+
+  <Accordion title="Exclusion list — who you must never contact" icon="ban">
+    Two lists, people and companies, checked before anyone is enrolled.
+    Customers, competitors, churned accounts, anyone who asked to be left alone.
+
+    **Comes from** [`POST /account/exclusion-lists/people`](/v3/reference/account-exclusion-lists-people-add)
+    and the matching companies endpoint. Each organization has one; a project
+    can either share its parent's or keep a private one.
+  </Accordion>
+
+  <Accordion title="Project — a child organization" icon="folder-tree">
+    A project isolates lists, campaigns, and chats — one per client, if you're
+    an agency. It draws on the parent's credit wallet and can carry a monthly
+    cap.
+
+    **Comes from** [`POST /account/projects`](/v3/reference/account-projects-create).
+    Act inside one by sending `x-origami-project: <project_id>`.
+  </Accordion>
+
+  <Accordion title="Chat — the in-app assistant, over the API" icon="messages-square">
+    The same agent as the Origami app. Send it a prompt and it does the work,
+    creating lists and campaigns as it goes and linking them to the chat.
+
+    **Comes from** [`POST /account/chats`](/v3/reference/account-chats-create),
+    then [`POST /account/chats/{chat_id}/messages`](/v3/reference/account-chats-messages-create).
+    Each message returns a Job.
+  </Accordion>
+
+  <Accordion title="Webhook endpoint and API key" icon="key">
+    A webhook endpoint is a URL plus the event types it wants; it has a signing
+    secret shown once at creation and rotatable later. An API key authenticates
+    requests and carries a role (`member` or `admin`).
+
+    **Come from** [`POST /account/webhooks`](/v3/reference/account-webhooks-create)
+    and [`POST /account/keys`](/v3/reference/account-keys-create). Both are
+    admin-only.
+  </Accordion>
+</AccordionGroup>
+
+## The Job
+
+Every slow operation — sourcing, enrichment, copy generation, domain purchase,
+chat — returns the same Job object instead of blocking. A Job tells you what
+it's working on (`operation`, `target`, `phase`), how far along it is
+(`progress`), when to check again (`next_poll_at`), and what it cost
+(`credits`).
+
+```json
+{
+  "object": "job",
+  "id": "3f1c9b2a-0e5d-4a77-9c11-2b6d8e4f5a90",
+  "operation": "leads.searches.create",
+  "status": "running",
+  "phase": "enriching",
+  "progress": { "done": 18, "total": 25 },
+  "target": { "type": "list", "id": "d290f1ee-6c54-4b01-90e6-d701748f0851" }
+}
+```
+
+<Card title="The Job object" icon="file-json" href="/v3/jobs" horizontal>
+  Statuses, polling, cancelling, credits, and the questions a Job can ask you.
+</Card>
