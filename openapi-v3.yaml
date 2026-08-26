@@ -146,9 +146,9 @@ paths:
         metadata:
           title: "Get a job"
           sidebarTitle: "Get a job"
-          description: "Read one Job (paced: honor next_poll_at)"
+          description: "Read one job. Honor next_poll_at when you poll."
       operationId: jobs.get
-      summary: "Read one Job (paced: honor next_poll_at)"
+      summary: "Read one job. Honor next_poll_at when you poll."
       tags:
         - jobs
       parameters:
@@ -331,10 +331,9 @@ paths:
         metadata:
           title: "Get your account"
           sidebarTitle: "Get your account"
-          description: "Read the org: plan, capability flags, concurrent_agent_runs, project counts"
+          description: "Read the org, including plan, capability flags, concurrent agent runs, and project counts."
       operationId: account.get
-      summary: "Read the org: plan, capability flags, concurrent_agent_runs, project
-        counts"
+      summary: "Read the org, including plan, capability flags, concurrent agent runs, and project counts."
       tags:
         - account
       responses:
@@ -450,9 +449,9 @@ paths:
         metadata:
           title: "Rate limits"
           sidebarTitle: "Rate limits"
-          description: "Current rate-limit buckets: limit, remaining, reset per bucket"
+          description: "Current rate-limit buckets, with limit, remaining, and reset per bucket."
       operationId: account.rate_limits.get
-      summary: "Current rate-limit buckets: limit, remaining, reset per bucket"
+      summary: "Current rate-limit buckets, with limit, remaining, and reset per bucket."
       tags:
         - account
       responses:
@@ -4803,10 +4802,9 @@ paths:
         metadata:
           title: "Add or update rows"
           sidebarTitle: "Add or update rows"
-          description: "Upsert rows by match columns (sync; embeds an enrichment Job when enrich: true)"
+          description: "Upsert rows by match columns. Sync, and embeds an enrichment job when enrich is true."
       operationId: leads.lists.rows.upsert
-      summary: "Upsert rows by match columns (sync; embeds an enrichment Job when
-        enrich: true)"
+      summary: "Upsert rows by match columns. Sync, and embeds an enrichment job when enrich is true."
       tags:
         - leads
       parameters:
@@ -5099,9 +5097,9 @@ paths:
         metadata:
           title: "Search for leads"
           sidebarTitle: "Search for leads"
-          description: "One-shot search: brief \u2192 new list + search + first page (AGENT)"
+          description: "One-shot search from a brief. Creates a list, runs the search, and returns the first page."
       operationId: leads.searches.create
-      summary: "One-shot search: brief → new list + search + first page (AGENT)"
+      summary: "One-shot search from a brief. Creates a list, runs the search, and returns the first page."
       tags:
         - leads
       description: "AGENT-tagged: may run the in-app agent under the hood."
@@ -5378,10 +5376,9 @@ paths:
         metadata:
           title: "Get a campaign"
           sidebarTitle: "Get a campaign"
-          description: "Read one campaign (recipe-resumable: schema, template, people, settings)"
+          description: "Read one campaign, including schema, template, people, and settings."
       operationId: send.campaigns.get
-      summary: "Read one campaign (recipe-resumable: schema, template, people,
-        settings)"
+      summary: "Read one campaign, including schema, template, people, and settings."
       tags:
         - send
       parameters:
@@ -5551,9 +5548,9 @@ paths:
         metadata:
           title: "Draft from a brief"
           sidebarTitle: "Draft from a brief"
-          description: "AGENT shortcut: fill schema + templates from a brief (never launches)"
+          description: "Fill schema and templates from a brief. Never launches."
       operationId: send.campaigns.draft
-      summary: "AGENT shortcut: fill schema + templates from a brief (never launches)"
+      summary: "Fill schema and templates from a brief. Never launches."
       tags:
         - send
       description: "AGENT-tagged: may run the in-app agent under the hood."
@@ -6231,9 +6228,9 @@ paths:
         metadata:
           title: "Set the person fields"
           sidebarTitle: "Set the person fields"
-          description: "Replace the person schema ({ fields: [] } means identity-only)"
+          description: "Replace the person schema. An empty fields list means identity-only."
       operationId: send.campaigns.people.schema.put
-      summary: "Replace the person schema ({ fields: [] } means identity-only)"
+      summary: "Replace the person schema. An empty fields list means identity-only."
       tags:
         - send
       parameters:
@@ -6537,9 +6534,9 @@ paths:
         metadata:
           title: "Get one person"
           sidebarTitle: "Get one person"
-          description: "Read one person's sequence: identity, per-step state, sent copy"
+          description: "Read one person's sequence, including identity, per-step state, and sent copy."
       operationId: send.campaigns.people.get
-      summary: "Read one person's sequence: identity, per-step state, sent copy"
+      summary: "Read one person's sequence, including identity, per-step state, and sent copy."
       tags:
         - send
       parameters:
@@ -7457,9 +7454,9 @@ paths:
         metadata:
           title: "Clear the template"
           sidebarTitle: "Clear the template"
-          description: "Clear the template to { sequences: [] }"
+          description: "Clear the template to an empty sequences list."
       operationId: send.campaigns.templates.clear
-      summary: "Clear the template to { sequences: [] }"
+      summary: "Clear the template to an empty sequences list."
       tags:
         - send
       parameters:

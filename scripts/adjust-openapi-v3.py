@@ -8,9 +8,11 @@ Three jobs:
    requires the template name to match the parameter name.
 2. Every operation gets an `x-mint` block: a stable `href` so guide pages
    can link `/v3/reference/<operation-id>`, plus `metadata` that gives the
-   generated page a plain-English title and keeps the terse catalog
-   `summary` as the page subtitle. Without this the sidebar reads as a
-   list of catalog identifiers instead of a list of things you can do.
+   generated page a plain-English title and a subtitle. Catalog summaries
+   that contain `:` or `{ k: v }` are rewritten — Mintlify copies the
+   description into unquoted MDX frontmatter, and those characters crash
+   the preview. Without `x-mint` the sidebar reads as a list of catalog
+   identifiers instead of a list of things you can do.
 3. Rewrites `/jobs/{id}` mentions in prose and prepends a Mintlify
    adjustment note to the file header.
 
@@ -273,6 +275,53 @@ def collect_summaries(doc: dict) -> dict[str, str]:
     return summaries
 
 
+def is_yaml_plain_safe(s: str) -> bool:
+    """True if `s` round-trips as an unquoted YAML plain scalar."""
+    try:
+        loaded = yaml.safe_load("description: " + s)
+    except yaml.YAMLError:
+        return False
+    return isinstance(loaded, dict) and loaded.get("description") == s
+
+
+# Catalog summaries that cannot be copied into unquoted MDX frontmatter as-is.
+# Mintlify generates each endpoint page with `description: <summary>` and does
+# not quote the value, so `key: value` and `{ k: v }` crash the preview.
+SAFE_DESCRIPTIONS = {
+    "jobs.get": "Read one job. Honor next_poll_at when you poll.",
+    "account.get": "Read the org, including plan, capability flags, concurrent agent runs, and project counts.",
+    "account.rate_limits.get": "Current rate-limit buckets, with limit, remaining, and reset per bucket.",
+    "leads.lists.rows.upsert": "Upsert rows by match columns. Sync, and embeds an enrichment job when enrich is true.",
+    "leads.searches.create": "One-shot search from a brief. Creates a list, runs the search, and returns the first page.",
+    "send.campaigns.get": "Read one campaign, including schema, template, people, and settings.",
+    "send.campaigns.draft": "Fill schema and templates from a brief. Never launches.",
+    "send.campaigns.people.schema.put": "Replace the person schema. An empty fields list means identity-only.",
+    "send.campaigns.people.get": "Read one person's sequence, including identity, per-step state, and sent copy.",
+    "send.campaigns.templates.clear": "Clear the template to an empty sequences list.",
+}
+
+
+def mintlify_safe_frontmatter(s: str, operation_id: str = "") -> str:
+    """Rewrite a catalog summary so Mintlify can put it in MDX frontmatter."""
+    if operation_id in SAFE_DESCRIPTIONS:
+        s = SAFE_DESCRIPTIONS[operation_id]
+    if is_yaml_plain_safe(s):
+        return s
+    s = s.replace("{ fields: [] }", "an empty fields list")
+    s = s.replace("{ sequences: [] }", "an empty sequences list")
+    s = s.replace("enrich: true", "enrich is true")
+    s = s.replace(": ", " — ")
+    s = s.replace(":", " —")
+    s = s.replace("{", "(").replace("}", ")")
+    s = s.replace("[", "(").replace("]", ")")
+    if not is_yaml_plain_safe(s):
+        raise SystemExit(
+            f"description is still unsafe as unquoted YAML: {s!r}"
+        )
+    print(f"warning: sanitized unmapped colon-bearing summary: {s!r}")
+    return s
+
+
 def inject_x_mint(text: str, summaries: dict[str, str]) -> str:
     """Give every operation a stable href and a readable title.
 
@@ -280,12 +329,16 @@ def inject_x_mint(text: str, summaries: dict[str, str]) -> str:
     working no matter how docs.json groups the endpoints. `metadata.title`
     sets the page heading and `metadata.sidebarTitle` the sidebar entry —
     both are needed, since the sidebar otherwise falls back to the
-    operationId. `metadata.description` carries the catalog summary as the
-    subtitle underneath the heading.
+    operationId. `metadata.description` is a Mintlify-safe subtitle
+    (catalog summaries with colons are rewritten — Mintlify does not
+    quote them in generated MDX frontmatter).
     """
     out: list[str] = []
     unmapped: list[str] = []
-    for line in text.splitlines(keepends=True):
+    lines = text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         m = re.match(r"^(      )operationId: ([A-Za-z0-9_.]+)\n$", line)
         if m:
             indent, op = m.group(1), m.group(2)
@@ -296,6 +349,10 @@ def inject_x_mint(text: str, summaries: dict[str, str]) -> str:
                 # Fall back to the id minus its section, e.g. "rows upsert".
                 title = op.split(".", 1)[-1].replace(".", " ").replace("_", " ")
                 title = title[:1].upper() + title[1:]
+            summary = summaries.get(op, "")
+            description = (
+                mintlify_safe_frontmatter(summary, op) if summary else ""
+            )
             out.append(f"{indent}x-mint:\n")
             out.append(f"{indent}  href: {href}\n")
             out.append(f"{indent}  metadata:\n")
@@ -304,10 +361,23 @@ def inject_x_mint(text: str, summaries: dict[str, str]) -> str:
             # sidebar entry from the operationId ("Account senders imap create")
             # rather than from the page title.
             out.append(f"{indent}    sidebarTitle: {json.dumps(title)}\n")
-            summary = summaries.get(op, "")
-            if summary:
-                out.append(f"{indent}    description: {json.dumps(summary)}\n")
+            if description:
+                out.append(f"{indent}    description: {json.dumps(description)}\n")
+            out.append(line)
+            i += 1
+            # Only rewrite a following summary when the catalog string would
+            # crash Mintlify's unquoted MDX frontmatter. Leave safe summaries
+            # as paper-crane wrote them (including folded lines).
+            if i < len(lines) and re.match(r"^      summary:", lines[i]):
+                if summary and not is_yaml_plain_safe(summary):
+                    out.append(f"{indent}summary: {json.dumps(description)}\n")
+                    i += 1
+                    while i < len(lines) and lines[i].startswith("        "):
+                        i += 1
+                    continue
+            continue
         out.append(line)
+        i += 1
     if unmapped:
         print(f"warning: no title mapped for {len(unmapped)} operations:")
         for op in unmapped:
@@ -385,6 +455,21 @@ def main() -> int:
     leftover = [p for p in adjusted["paths"] if "{id}" in p]
     if leftover:
         raise SystemExit(f"Unrewritten {{id}} paths: {leftover}")
+    unsafe = []
+    for methods in adjusted["paths"].values():
+        for op in methods.values():
+            if not isinstance(op, dict):
+                continue
+            desc = (op.get("x-mint") or {}).get("metadata", {}).get(
+                "description", ""
+            )
+            if desc and not is_yaml_plain_safe(desc):
+                unsafe.append(op.get("operationId", "?"))
+    if unsafe:
+        raise SystemExit(
+            "x-mint descriptions still unsafe as unquoted YAML: "
+            + ", ".join(unsafe)
+        )
     print(f"rewrote {len(renames)} paths in {SPEC}")
     print_nav(adjusted)
     return 0
