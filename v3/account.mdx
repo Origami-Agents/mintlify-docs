@@ -1,0 +1,259 @@
+---
+title: "Set up the account"
+sidebarTitle: "Account"
+description: "Senders, domains, credits, exclusions, projects, webhooks, and keys."
+---
+
+Account holds everything Leads and Send depend on. Most of it you configure once
+and then forget.
+
+Start by confirming what your organization can do:
+
+```bash
+curl https://origami.chat/api/v3/account \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+That returns your plan, capability flags, how many agent runs you can have in
+flight at once, and your project counts. Capability flags matter — features like
+sender warmup are plan-gated and return `409 WARMUP_UNAVAILABLE` if yours
+doesn't include them.
+
+## Senders
+
+A sender is a mailbox or LinkedIn account Origami sends from. They belong to the
+organization, so connect once and use across every campaign.
+
+<Warning>
+  OAuth never completes inside an API call. `POST /account/senders/connect`
+  returns a **handoff URL** that a human opens in a browser. Your code's job is
+  to surface that link, not to follow it.
+</Warning>
+
+```bash
+curl -X POST https://origami.chat/api/v3/account/senders/connect \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "email"}'
+```
+
+Any SMTP/IMAP mailbox can be connected straight from the API instead:
+
+```bash
+curl -X POST https://origami.chat/api/v3/account/senders/imap \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "dana@northwind.io",
+    "first_name": "Dana",
+    "last_name": "Okafor",
+    "smtp_host": "smtp.northwind.io", "smtp_port": 587,
+    "smtp_username": "dana@northwind.io", "smtp_password": "…",
+    "imap_host": "imap.northwind.io", "imap_port": 993,
+    "imap_username": "dana@northwind.io", "imap_password": "…"
+  }'
+```
+
+Credentials are write-only — no read ever returns them. Bad credentials fail
+immediately with `SMTP_AUTH_FAILED` or `IMAP_UNREACHABLE` rather than failing
+silently at send time.
+
+### Keeping senders healthy
+
+| Task | Call |
+| --- | --- |
+| Set the daily cap, signature, timezone, or gap between sends | [`PATCH …/senders/{sender_id}`](/v3/reference/account-senders-patch) |
+| Turn on warmup (plan-gated) | [`POST …/warmup/enable`](/v3/reference/account-senders-warmup-enable) |
+| Fix a sender showing `needs_reauth` | [`POST …/reconnect`](/v3/reference/account-senders-reconnect) |
+| Send from an alias instead of the mailbox address | [`GET …/send-as-aliases`](/v3/reference/account-senders-send-as-aliases-list), then set `send_as_email` |
+
+A sender whose authorization expired reports `needs_reauth` and blocks any
+campaign launch that depends on it. Poll
+[`GET /account/senders?status=needs_reauth`](/v3/reference/account-senders-list)
+on a schedule and alert whoever owns the mailbox — a reconnect is another
+handoff.
+
+## Domains and mailboxes
+
+Cold outreach on your primary domain risks your real email. Origami can buy
+lookalike domains and run mailboxes on them for you.
+
+<Steps>
+  <Step title="Find domains">
+    ```bash
+    curl -X POST https://origami.chat/api/v3/account/domains/search \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"query": "northwind"}'
+    ```
+    Search never charges. It returns availability and price.
+  </Step>
+  <Step title="Buy them">
+    ```bash
+    curl -X POST "https://origami.chat/api/v3/account/domains/purchase?confirm=true" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"domains": ["trynorthwind.com"], "forwarding_domain": "northwind.io"}'
+    ```
+    Without `confirm=true` you get a priced preview and nothing is charged.
+    Charges hit the card on file, so this is admin-only and returns
+    `409 NO_PAYMENT_METHOD` if there isn't one. Set `forwarding_domain` so the
+    apex redirects to your real site — a domain that resolves to nothing hurts
+    deliverability.
+  </Step>
+  <Step title="Provision mailboxes">
+    ```bash
+    curl -X POST https://origami.chat/api/v3/account/mailboxes \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"mailboxes": [{
+        "domain_id": "'"$DOMAIN_ID"'",
+        "local_part": "dana",
+        "first_name": "Dana",
+        "last_name": "Okafor"
+      }]}'
+    ```
+    Always async — you get a Job. Once it succeeds the mailbox shows up as a
+    sender.
+  </Step>
+</Steps>
+
+Domains auto-renew. Turn that off with
+[`POST …/renewal/cancel`](/v3/reference/account-domains-renewal-cancel), and
+change your mind with [`…/renewal/undo`](/v3/reference/account-domains-renewal-undo).
+
+## Exclusion lists
+
+Two lists — people and companies — checked when leads are sourced and again when
+people are enrolled. This is your do-not-contact record: customers, competitors,
+churned accounts, anyone who asked to be left alone.
+
+```bash
+curl -X POST https://origami.chat/api/v3/account/exclusion-lists/people \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"entries": [
+    {"email": "dana@northwind.io"},
+    {"linkedin_slug": "sam-reyes", "full_name": "Sam Reyes"},
+    {"company_domain": "acme.com", "company_name": "Acme"}
+  ]}'
+```
+
+Adds are idempotent upserts, up to 1,000 per call. An entry with nothing
+matchable in it returns `UNMATCHABLE_IDENTIFIER` — an email, a LinkedIn slug, or
+a company domain is enough.
+
+Each organization has one exclusion list. A project can either share its
+parent's or keep a private one:
+
+```bash
+curl -X PATCH https://origami.chat/api/v3/account/exclusion-lists \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "x-origami-project: $PROJECT_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"source": "project"}'
+```
+
+Agencies usually want `project` so one client's suppression list never leaks
+into another's. [`GET /account/exclusion-lists`](/v3/reference/account-exclusion-lists-get)
+tells you which is in effect and how many entries it holds.
+
+## Credits
+
+```bash
+curl https://origami.chat/api/v3/account/credits \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+The balance is reservation-aware: credits committed to running Jobs are already
+subtracted, so what you see is what you can actually spend. For a monthly
+breakdown by section, use
+[`GET /account/credits/usage?period=2026-08`](/v3/reference/account-credits-usage).
+
+Reads never cost anything. Sourcing and enrichment do. Per-Job spend is on the
+Job itself — see [credits on the Job object](/v3/jobs#credits).
+
+## Projects
+
+A project is a child organization with its own lists, campaigns, and chats. One
+per client, if you run an agency.
+
+```bash
+curl -X POST https://origami.chat/api/v3/account/projects \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Northwind", "monthly_credit_cap": 5000, "enforcement": "hard"}'
+```
+
+`hard` enforcement blocks spend at the cap; `soft` tracks it and lets work
+through. Credits still come from the parent's wallet either way.
+
+Then scope requests with the `x-origami-project` header — see
+[conventions](/v3/conventions#scoping-to-a-project) for exactly which routes
+honor it.
+
+## Webhooks
+
+Rather than polling Jobs, have Origami call you.
+
+```bash
+curl -X POST https://origami.chat/api/v3/account/webhooks \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Job notifications",
+    "url": "https://api.northwind.io/hooks/origami",
+    "event_types": ["job.succeeded", "job.failed", "job.needs_input"]
+  }'
+```
+
+The signing secret is returned **once**, at creation. Store it immediately —
+there is no way to read it back, only to
+[rotate it](/v3/reference/account-webhooks-rotate). Verify every delivery with
+it before trusting the payload.
+
+[`POST …/test`](/v3/reference/account-webhooks-test) sends a `webhook.test`
+event so you can confirm your endpoint works before real traffic depends on it.
+
+<Card title="Webhooks guide" icon="webhook" href="/webhooks/overview" horizontal>
+  Event catalog, signature verification, and retry behavior.
+</Card>
+
+## API keys
+
+```bash
+curl -X POST https://origami.chat/api/v3/account/keys \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "CRM sync", "role": "member"}'
+```
+
+Like webhook secrets, the key is shown once. A key can't be created with a role
+above its creator's, and `member` keys get `403` on admin-only operations —
+webhook management, key management, and domain purchase.
+
+One key per integration. Revoking one takes effect immediately.
+
+## Chats
+
+The Origami app's assistant, over the API. Send a prompt and it does the work,
+creating lists and campaigns as it goes.
+
+```bash
+CHAT_ID=$(curl -sS -X POST https://origami.chat/api/v3/account/chats \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Q3 outbound"}' | jq -r '.id')
+
+curl -X POST "https://origami.chat/api/v3/account/chats/$CHAT_ID/messages" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Find 50 heads of RevOps at US SaaS companies and draft a campaign"}'
+```
+
+Each message returns a Job, and that Job may come back `needs_input` if the
+agent has a question — answer it with
+[`POST /jobs/{job_id}/input`](/v3/reference/jobs-input) and the same Job resumes.
+
+Use chats when you want Origami to decide the steps. Use the Leads and Send
+endpoints directly when your code should decide them.

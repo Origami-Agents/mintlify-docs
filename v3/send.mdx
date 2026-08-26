@@ -1,0 +1,260 @@
+---
+title: "Run a campaign"
+sidebarTitle: "Send"
+description: "The send recipe in order: people, template, senders, preview, launch."
+---
+
+A campaign is built in a fixed order, and every step is resumable. You can stop
+after any of them, come back tomorrow, and
+[`GET /send/campaigns/{campaign_id}`](/v3/reference/send-campaigns-get) will
+tell you exactly what's still missing.
+
+<Note>
+  Before your first campaign, connect at least one sender. Nothing launches
+  without one. See [account setup](/v3/account#senders).
+</Note>
+
+## The recipe
+
+<Steps>
+  <Step title="Create the campaign">
+    ```bash
+    CAMPAIGN_ID=$(curl -sS -X POST https://origami.chat/api/v3/send/campaigns \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "RevOps Q3 outbound", "channels": ["email"]}' | jq -r '.id')
+    ```
+
+    A blank `draft`. Nothing sends until you launch it.
+  </Step>
+
+  <Step title="Add senders">
+    Senders belong to the organization; here you pick which ones this campaign
+    draws from. Add several and sends spread across them.
+
+    ```bash
+    curl -X POST "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/senders" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"sender_id": "'"$SENDER_ID"'"}'
+    ```
+
+    [`GET …/senders`](/v3/reference/send-campaigns-senders-list) shows the
+    current pool plus the org senders available to add.
+  </Step>
+
+  <Step title="Declare what you know about each person">
+    The person schema is the People tab's columns. Declare it before enrolling
+    anyone, so their context has somewhere to land.
+
+    ```bash
+    curl -X PUT "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/people/schema" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "fields": [
+          {"key": "funding_stage", "description": "Latest funding round", "required": false},
+          {"key": "crm", "description": "CRM they use today", "required": true}
+        ]
+      }'
+    ```
+
+    Pass `{"fields": []}` if you only need name, email, and company. Skipping
+    this step entirely gets you `409 PERSON_SCHEMA_REQUIRED` when you enroll.
+  </Step>
+
+  <Step title="Enroll people">
+    From a list — this is where Leads and Send meet:
+
+    ```bash
+    curl -X POST "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/people" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "list_id": "'"$LIST_ID"'",
+        "min_relevance_score": 70,
+        "mapping": {
+          "context": {"funding_stage": "funding_stage", "crm": "crm_in_use"},
+          "why_this_person": "fit_rationale"
+        }
+      }'
+    ```
+
+    `mapping` connects list columns to person-schema fields. `why_this_person`
+    is the one-line reason this prospect is worth contacting — it's what the
+    copy generator leans on, so point it at a real column or set
+    `default_why_this_person`.
+
+    You can also pass `people` inline instead of a `list_id`, and `row_ids` to
+    take only specific rows. Either way it's synchronous, up to 1,000 per call.
+  </Step>
+
+  <Step title="Write the template">
+    A template is one or more **variants** (A/B arms), each a list of steps.
+
+    ```bash
+    curl -X PUT "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/templates" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "sequences": [{
+          "variant_name": "Direct ask",
+          "instructions": "Concise and specific. Reference their CRM. No pleasantries.",
+          "steps": [
+            {
+              "channel": "email",
+              "subject": "RevOps reporting at {{company}}",
+              "body": "Hi {{first_name}} — noticed you run RevOps at {{company}}. Most teams on your CRM end up rebuilding the same pipeline report every quarter.\n\nWorth 15 minutes?",
+              "delay_days": 0,
+              "personalized": ["Most teams on your CRM end up rebuilding the same pipeline report every quarter."]
+            },
+            {
+              "channel": "email",
+              "body": "Following up on the above — happy to send the teardown instead if that is easier.",
+              "delay_days": 3
+            }
+          ]
+        }]
+      }'
+    ```
+
+    `personalized` (and `subject_personalized`) list phrases copied verbatim
+    from the body that should be rewritten per recipient — everything else goes
+    out as written. If a phrase doesn't match the body exactly you get
+    `409 TEMPLATE_SPANS_INVALID`.
+
+    Up to 10 variants, 15 steps each. Add arms one at a time with
+    [`POST …/templates/sequences`](/v3/reference/send-campaigns-templates-sequences-append)
+    rather than replacing the whole template; each keeps a `variant_key` that is
+    never reused, so stats stay comparable over time.
+
+    <Tip>
+      Don't want to write it yourself? [`POST /send/campaigns/draft`](/v3/reference/send-campaigns-draft)
+      takes a brief and an optional `list_id` and fills in the schema and
+      templates for you. It never launches — you still review everything below.
+    </Tip>
+  </Step>
+
+  <Step title="Read what will actually go out">
+    Templates are not what people receive. Generate the real per-person copy and
+    read it before anything sends.
+
+    ```bash
+    curl -X POST "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/examples" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"limit": 10}'
+    ```
+
+    That's one LLM call per person, so it returns a Job. When it finishes, read
+    the results with [`GET …/examples`](/v3/reference/send-campaigns-examples-list).
+
+    A message that isn't right can be fixed in place with
+    [`PATCH …/people/{sequence_id}/steps/{step_index}`](/v3/reference/send-campaigns-people-steps-patch),
+    and [`POST …/revert`](/v3/reference/send-campaigns-people-revert) throws your
+    edits away and re-renders from the template.
+  </Step>
+
+  <Step title="Set the schedule">
+    ```bash
+    curl -X PATCH "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/settings" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "send_window": {"start_hour": 9, "end_hour": 17, "days": [1, 2, 3, 4, 5]},
+        "block_prior_contacts": true,
+        "require_message_approval": true
+      }'
+    ```
+
+    | Setting | What it does |
+    | --- | --- |
+    | `send_window` | Hours and weekdays sends are allowed, in each recipient's timezone |
+    | `block_active_duplicates` | Skip anyone already in another running campaign |
+    | `block_prior_contacts` | Skip anyone you've contacted before |
+    | `require_message_approval` | Hold every message until a human releases it |
+    | `allow_excluded_recipients` | Send to people on the exclusion list anyway |
+    | `auto_lead_refill_enabled` | Top the campaign up from its list as people finish, capped by `auto_lead_refill_budget_credits` |
+
+    Settings can be patched in any status, including while the campaign is
+    running. Omitted fields are left alone.
+  </Step>
+
+  <Step title="Dry run, then launch">
+    Check the gates without committing:
+
+    ```bash
+    curl -X POST "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/launch" \
+      -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"dry_run": true}'
+    ```
+
+    A dry run reports exactly what a real launch would check. Drop `dry_run` to
+    go live.
+
+    | Code | Fix |
+    | --- | --- |
+    | `ACCOUNT_CONNECTION_REQUIRED` | No sender in the pool — add one |
+    | `ACCOUNT_RECONNECT_REQUIRED` | A sender's authorization expired — [reconnect it](/v3/reference/account-senders-reconnect) |
+    | `NO_PEOPLE` | Nobody enrolled |
+    | `NO_STEPS` | The template has no steps |
+    | `ALL_VARIANTS_PAUSED` | Every variant is `paused: true` |
+    | `OUT_OF_LEADS` | Auto-refill is on but the source list is empty |
+  </Step>
+</Steps>
+
+## While it's running
+
+```bash
+curl "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/stats" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+```
+
+[`GET …/people`](/v3/reference/send-campaigns-people-list) pages everyone with
+their current status, including `bounced` and `unsubscribed`, and takes a
+`search` filter.
+
+If you turned on `require_message_approval`, messages queue up until you release
+them:
+
+```bash
+curl "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/approvals" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY"
+
+# Release everything held; pass sequence_ids to release only some
+curl -X POST "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/approvals/approve" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" -d '{}'
+```
+
+### Stopping things
+
+| Scope | Call | Effect |
+| --- | --- | --- |
+| Everyone | [`POST …/pause`](/v3/reference/send-campaigns-pause) | Halts the campaign. [Resume](/v3/reference/send-campaigns-resume) picks it back up. |
+| One person, keep history | [`POST …/people/{sequence_id}/stop`](/v3/reference/send-campaigns-people-stop) | No further steps; what was sent stays on the record |
+| One person, cancel | [`POST …/people/{sequence_id}/remove`](/v3/reference/send-campaigns-people-remove) | Cancels the sequence; they stay in the dedup set so they aren't re-enrolled |
+| Many people | [`POST …/people/remove`](/v3/reference/send-campaigns-people-remove-bulk) | Up to 1,000, with a per-id outcome for each |
+
+`stop` and `remove` both accept `{"dry_run": true}` if you want to see the blast
+radius first.
+
+<Warning>
+  Deleting a person is not the same as removing them.
+  [`DELETE …/people/{sequence_id}`](/v3/reference/send-campaigns-people-delete)
+  erases them from the campaign, which re-opens deduplication — they can be
+  enrolled again and contacted twice. After anything has been sent it requires
+  `force=true`. Prefer `remove`.
+</Warning>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Account setup" icon="settings" href="/v3/account">
+    Connect senders, buy domains, provision mailboxes.
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/webhooks/overview">
+    Get replies, bounces, and opens pushed to you instead of polling.
+  </Card>
+</CardGroup>

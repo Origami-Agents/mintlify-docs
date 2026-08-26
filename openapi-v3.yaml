@@ -57,6 +57,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/jobs-list
+        metadata:
+          title: "List jobs"
+          sidebarTitle: "List jobs"
+          description: "List the caller's visible Jobs, newest first"
       operationId: jobs.list
       summary: List the caller's visible Jobs, newest first
       tags:
@@ -139,6 +143,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/jobs-get
+        metadata:
+          title: "Get a job"
+          sidebarTitle: "Get a job"
+          description: "Read one Job (paced: honor next_poll_at)"
       operationId: jobs.get
       summary: "Read one Job (paced: honor next_poll_at)"
       tags:
@@ -191,6 +199,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/jobs-cancel
+        metadata:
+          title: "Cancel a job"
+          sidebarTitle: "Cancel a job"
+          description: "Request cooperative cancel of a Job"
       operationId: jobs.cancel
       summary: Request cooperative cancel of a Job
       tags:
@@ -243,6 +255,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/jobs-input
+        metadata:
+          title: "Answer a job's questions"
+          sidebarTitle: "Answer a job's questions"
+          description: "Answer a needs_input Job's questions and resume it"
       operationId: jobs.input
       summary: Answer a needs_input Job's questions and resume it
       tags:
@@ -312,6 +328,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-get
+        metadata:
+          title: "Get your account"
+          sidebarTitle: "Get your account"
+          description: "Read the org: plan, capability flags, concurrent_agent_runs, project counts"
       operationId: account.get
       summary: "Read the org: plan, capability flags, concurrent_agent_runs, project
         counts"
@@ -346,6 +366,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-credits-get
+        metadata:
+          title: "Credit balance"
+          sidebarTitle: "Credit balance"
+          description: "Read the reservation-aware wallet balance in credits"
       operationId: account.credits.get
       summary: Read the reservation-aware wallet balance in credits
       tags:
@@ -379,6 +403,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-credits-usage
+        metadata:
+          title: "Credit usage"
+          sidebarTitle: "Credit usage"
+          description: "Credits spent in a month, with a per-section breakdown"
       operationId: account.credits.usage
       summary: Credits spent in a month, with a per-section breakdown
       tags:
@@ -419,6 +447,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-rate-limits-get
+        metadata:
+          title: "Rate limits"
+          sidebarTitle: "Rate limits"
+          description: "Current rate-limit buckets: limit, remaining, reset per bucket"
       operationId: account.rate_limits.get
       summary: "Current rate-limit buckets: limit, remaining, reset per bucket"
       tags:
@@ -452,6 +484,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-projects-list
+        metadata:
+          title: "List projects"
+          sidebarTitle: "List projects"
+          description: "List projects under the parent org"
       operationId: account.projects.list
       summary: List projects under the parent org
       tags:
@@ -498,6 +534,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-projects-create
+        metadata:
+          title: "Create a project"
+          sidebarTitle: "Create a project"
+          description: "Create a project (optional monthly credit cap)"
       operationId: account.projects.create
       summary: Create a project (optional monthly credit cap)
       tags:
@@ -554,6 +594,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-projects-get
+        metadata:
+          title: "Get a project"
+          sidebarTitle: "Get a project"
+          description: "Read one project"
       operationId: account.projects.get
       summary: Read one project
       tags:
@@ -593,6 +637,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/account-projects-patch
+        metadata:
+          title: "Update a project"
+          sidebarTitle: "Update a project"
+          description: "Rename a project or change its budget cap / enforcement"
       operationId: account.projects.patch
       summary: Rename a project or change its budget cap / enforcement
       tags:
@@ -653,6 +701,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-projects-delete
+        metadata:
+          title: "Delete a project"
+          sidebarTitle: "Delete a project"
+          description: "Delete a project (previews lists/rows/chats/campaigns without confirm)"
       operationId: account.projects.delete
       summary: Delete a project (previews lists/rows/chats/campaigns without confirm)
       tags:
@@ -698,6 +750,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-chats-list
+        metadata:
+          title: "List chats"
+          sidebarTitle: "List chats"
+          description: "List chats (onboarding/content/scheduled excluded by default)"
       operationId: account.chats.list
       summary: List chats (onboarding/content/scheduled excluded by default)
       tags:
@@ -752,6 +808,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-chats-create
+        metadata:
+          title: "Create a chat"
+          sidebarTitle: "Create a chat"
+          description: "Create an empty chat"
       operationId: account.chats.create
       summary: Create an empty chat
       tags:
@@ -797,6 +857,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-chats-get
+        metadata:
+          title: "Get a chat"
+          sidebarTitle: "Get a chat"
+          description: "Read one chat with linked list/campaign summaries"
       operationId: account.chats.get
       summary: Read one chat with linked list/campaign summaries
       tags:
@@ -848,6 +912,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/account-chats-patch
+        metadata:
+          title: "Rename a chat"
+          sidebarTitle: "Rename a chat"
+          description: "Rename a chat"
       operationId: account.chats.patch
       summary: Rename a chat
       tags:
@@ -913,6 +981,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-chats-archive
+        metadata:
+          title: "Archive a chat"
+          sidebarTitle: "Archive a chat"
+          description: "Archive a chat (soft-delete; no confirm required)"
       operationId: account.chats.archive
       summary: Archive a chat (soft-delete; no confirm required)
       tags:
@@ -965,6 +1037,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-chats-links-create
+        metadata:
+          title: "Link a list or campaign"
+          sidebarTitle: "Link a list or campaign"
+          description: "Link an existing list or campaign to a chat (idempotent)"
       operationId: account.chats.links.create
       summary: Link an existing list or campaign to a chat (idempotent)
       tags:
@@ -1031,6 +1107,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-chats-links-delete
+        metadata:
+          title: "Unlink a list or campaign"
+          sidebarTitle: "Unlink a list or campaign"
+          description: "Unlink a list or campaign from a chat (does not delete it)"
       operationId: account.chats.links.delete
       summary: Unlink a list or campaign from a chat (does not delete it)
       tags:
@@ -1089,6 +1169,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-chats-messages-create
+        metadata:
+          title: "Send a chat message"
+          sidebarTitle: "Send a chat message"
+          description: "Send a chat message and run the agent (returns a Job)"
       operationId: account.chats.messages.create
       summary: Send a chat message and run the agent (returns a Job)
       tags:
@@ -1160,6 +1244,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-senders-list
+        metadata:
+          title: "List senders"
+          sidebarTitle: "List senders"
+          description: "List the org's email and LinkedIn senders"
       operationId: account.senders.list
       summary: List the org's email and LinkedIn senders
       tags:
@@ -1221,6 +1309,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-senders-get
+        metadata:
+          title: "Get a sender"
+          sidebarTitle: "Get a sender"
+          description: "Read one sender (secrets never returned)"
       operationId: account.senders.get
       summary: Read one sender (secrets never returned)
       tags:
@@ -1272,6 +1364,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/account-senders-patch
+        metadata:
+          title: "Update a sender"
+          sidebarTitle: "Update a sender"
+          description: "Update safe sender settings (no credentials)"
       operationId: account.senders.patch
       summary: Update safe sender settings (no credentials)
       tags:
@@ -1359,6 +1455,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-senders-delete
+        metadata:
+          title: "Disconnect a sender"
+          sidebarTitle: "Disconnect a sender"
+          description: "Disconnect a sender (previews stops when sends are scheduled)"
       operationId: account.senders.delete
       summary: Disconnect a sender (previews stops when sends are scheduled)
       tags:
@@ -1416,6 +1516,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-senders-warmup-enable
+        metadata:
+          title: "Turn warmup on"
+          sidebarTitle: "Turn warmup on"
+          description: "Enable warmup for an email sender (feature-gated)"
       operationId: account.senders.warmup.enable
       summary: Enable warmup for an email sender (feature-gated)
       tags:
@@ -1468,6 +1572,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-senders-warmup-disable
+        metadata:
+          title: "Turn warmup off"
+          sidebarTitle: "Turn warmup off"
+          description: "Disable warmup for an email sender"
       operationId: account.senders.warmup.disable
       summary: Disable warmup for an email sender
       tags:
@@ -1520,6 +1628,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-senders-imap-create
+        metadata:
+          title: "Connect an SMTP/IMAP mailbox"
+          sidebarTitle: "Connect an SMTP/IMAP mailbox"
+          description: "Connect a native SMTP/IMAP mailbox (write-only credentials)"
       operationId: account.senders.imap.create
       summary: Connect a native SMTP/IMAP mailbox (write-only credentials)
       tags:
@@ -1624,6 +1736,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-senders-connect
+        metadata:
+          title: "Connect via OAuth"
+          sidebarTitle: "Connect via OAuth"
+          description: "Get a connect-accounts handoff URL (OAuth never completes in-process)"
       operationId: account.senders.connect
       summary: Get a connect-accounts handoff URL (OAuth never completes in-process)
       tags:
@@ -1672,6 +1788,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-senders-reconnect
+        metadata:
+          title: "Reconnect a sender"
+          sidebarTitle: "Reconnect a sender"
+          description: "Reconnect a needs_reauth sender (handoff, or IMAP re-submit instruction)"
       operationId: account.senders.reconnect
       summary: Reconnect a needs_reauth sender (handoff, or IMAP re-submit instruction)
       tags:
@@ -1724,6 +1844,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-senders-send-as-aliases-list
+        metadata:
+          title: "List send-as aliases"
+          sidebarTitle: "List send-as aliases"
+          description: "List verified send-as aliases (empty for IMAP/LinkedIn senders)"
       operationId: account.senders.send_as_aliases.list
       summary: List verified send-as aliases (empty for IMAP/LinkedIn senders)
       tags:
@@ -1776,6 +1900,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-domains-search
+        metadata:
+          title: "Search for domains"
+          sidebarTitle: "Search for domains"
+          description: "Search available domains with prices (never charges)"
       operationId: account.domains.search
       summary: Search available domains with prices (never charges)
       tags:
@@ -1823,6 +1951,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-domains-list
+        metadata:
+          title: "List your domains"
+          sidebarTitle: "List your domains"
+          description: "List owned DFY domains"
       operationId: account.domains.list
       summary: List owned DFY domains
       tags:
@@ -1870,6 +2002,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-domains-get
+        metadata:
+          title: "Get a domain"
+          sidebarTitle: "Get a domain"
+          description: "Read one owned domain"
       operationId: account.domains.get
       summary: Read one owned domain
       tags:
@@ -1922,6 +2058,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-domains-purchase
+        metadata:
+          title: "Buy domains"
+          sidebarTitle: "Buy domains"
+          description: "Purchase domains on the card on file (priced preview without confirm)"
       operationId: account.domains.purchase
       summary: Purchase domains on the card on file (priced preview without confirm)
       tags:
@@ -2008,6 +2148,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-domains-renewal-cancel
+        metadata:
+          title: "Turn off auto-renewal"
+          sidebarTitle: "Turn off auto-renewal"
+          description: "Cancel auto-renewal for a domain"
       operationId: account.domains.renewal.cancel
       summary: Cancel auto-renewal for a domain
       tags:
@@ -2066,6 +2210,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-domains-renewal-undo
+        metadata:
+          title: "Turn auto-renewal back on"
+          sidebarTitle: "Turn auto-renewal back on"
+          description: "Undo a renewal cancellation"
       operationId: account.domains.renewal.undo
       summary: Undo a renewal cancellation
       tags:
@@ -2124,6 +2272,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-domains-forwarding-set
+        metadata:
+          title: "Set domain forwarding"
+          sidebarTitle: "Set domain forwarding"
+          description: "Set apex forwarding for an owned domain"
       operationId: account.domains.forwarding.set
       summary: Set apex forwarding for an owned domain
       tags:
@@ -2196,6 +2348,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-mailboxes-list
+        metadata:
+          title: "List mailboxes"
+          sidebarTitle: "List mailboxes"
+          description: "List DFY mailboxes (no passwords)"
       operationId: account.mailboxes.list
       summary: List DFY mailboxes (no passwords)
       tags:
@@ -2242,6 +2398,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-mailboxes-provision
+        metadata:
+          title: "Create mailboxes"
+          sidebarTitle: "Create mailboxes"
+          description: "Provision mailboxes on owned domains (always async)"
       operationId: account.mailboxes.provision
       summary: Provision mailboxes on owned domains (always async)
       tags:
@@ -2335,6 +2495,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-exclusion-lists-get
+        metadata:
+          title: "Get exclusion settings"
+          sidebarTitle: "Get exclusion settings"
+          description: "Read the effective exclusion-list source and entry counts"
       operationId: account.exclusion_lists.get
       summary: Read the effective exclusion-list source and entry counts
       tags:
@@ -2367,6 +2531,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/account-exclusion-lists-patch
+        metadata:
+          title: "Switch exclusion source"
+          sidebarTitle: "Switch exclusion source"
+          description: "Switch a project between the shared org list and its private list"
       operationId: account.exclusion_lists.patch
       summary: Switch a project between the shared org list and its private list
       tags:
@@ -2421,6 +2589,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-exclusion-lists-people-list
+        metadata:
+          title: "List excluded people"
+          sidebarTitle: "List excluded people"
+          description: "List people exclusion entries, filterable by identifier"
       operationId: account.exclusion_lists.people.list
       summary: List people exclusion entries, filterable by identifier
       tags:
@@ -2485,6 +2657,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-exclusion-lists-people-add
+        metadata:
+          title: "Exclude people"
+          sidebarTitle: "Exclude people"
+          description: "Add people entries (single or bulk \u22641,000; idempotent upsert)"
       operationId: account.exclusion_lists.people.add
       summary: Add people entries (single or bulk ≤1,000; idempotent upsert)
       tags:
@@ -2583,6 +2759,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-exclusion-lists-people-clear
+        metadata:
+          title: "Clear excluded people"
+          sidebarTitle: "Clear excluded people"
+          description: "Clear the people exclusion list"
       operationId: account.exclusion_lists.people.clear
       summary: Clear the people exclusion list
       tags:
@@ -2622,6 +2802,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-exclusion-lists-people-delete
+        metadata:
+          title: "Un-exclude one person"
+          sidebarTitle: "Un-exclude one person"
+          description: "Remove one people exclusion entry"
       operationId: account.exclusion_lists.people.delete
       summary: Remove one people exclusion entry
       tags:
@@ -2662,6 +2846,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-exclusion-lists-companies-list
+        metadata:
+          title: "List excluded companies"
+          sidebarTitle: "List excluded companies"
+          description: "List company exclusion entries, filterable by identifier"
       operationId: account.exclusion_lists.companies.list
       summary: List company exclusion entries, filterable by identifier
       tags:
@@ -2714,6 +2902,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-exclusion-lists-companies-add
+        metadata:
+          title: "Exclude companies"
+          sidebarTitle: "Exclude companies"
+          description: "Add company entries (single or bulk \u22641,000; idempotent upsert)"
       operationId: account.exclusion_lists.companies.add
       summary: Add company entries (single or bulk ≤1,000; idempotent upsert)
       tags:
@@ -2790,6 +2982,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-exclusion-lists-companies-clear
+        metadata:
+          title: "Clear excluded companies"
+          sidebarTitle: "Clear excluded companies"
+          description: "Clear the company exclusion list"
       operationId: account.exclusion_lists.companies.clear
       summary: Clear the company exclusion list
       tags:
@@ -2829,6 +3025,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-exclusion-lists-companies-delete
+        metadata:
+          title: "Un-exclude one company"
+          sidebarTitle: "Un-exclude one company"
+          description: "Remove one company exclusion entry"
       operationId: account.exclusion_lists.companies.delete
       summary: Remove one company exclusion entry
       tags:
@@ -2869,6 +3069,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-webhooks-list
+        metadata:
+          title: "List endpoints"
+          sidebarTitle: "List endpoints"
+          description: "List webhook endpoints"
       operationId: account.webhooks.list
       summary: List webhook endpoints
       tags:
@@ -2915,6 +3119,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-webhooks-create
+        metadata:
+          title: "Create an endpoint"
+          sidebarTitle: "Create an endpoint"
+          description: "Create a webhook endpoint (secret shown once)"
       operationId: account.webhooks.create
       summary: Create a webhook endpoint (secret shown once)
       tags:
@@ -2991,6 +3199,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-webhooks-get
+        metadata:
+          title: "Get an endpoint"
+          sidebarTitle: "Get an endpoint"
+          description: "Read one webhook endpoint"
       operationId: account.webhooks.get
       summary: Read one webhook endpoint
       tags:
@@ -3030,6 +3242,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/account-webhooks-patch
+        metadata:
+          title: "Update an endpoint"
+          sidebarTitle: "Update an endpoint"
+          description: "Update a webhook endpoint's url, events, or enabled state"
       operationId: account.webhooks.patch
       summary: Update a webhook endpoint's url, events, or enabled state
       tags:
@@ -3099,6 +3315,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-webhooks-delete
+        metadata:
+          title: "Delete an endpoint"
+          sidebarTitle: "Delete an endpoint"
+          description: "Delete a webhook endpoint"
       operationId: account.webhooks.delete
       summary: Delete a webhook endpoint
       tags:
@@ -3145,6 +3365,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-webhooks-rotate
+        metadata:
+          title: "Rotate the signing secret"
+          sidebarTitle: "Rotate the signing secret"
+          description: "Rotate an endpoint's signing secret (new secret shown once)"
       operationId: account.webhooks.rotate
       summary: Rotate an endpoint's signing secret (new secret shown once)
       tags:
@@ -3191,6 +3415,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-webhooks-test
+        metadata:
+          title: "Send a test event"
+          sidebarTitle: "Send a test event"
+          description: "Send a webhook.test event to an endpoint"
       operationId: account.webhooks.test
       summary: Send a webhook.test event to an endpoint
       tags:
@@ -3237,6 +3465,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/account-keys-list
+        metadata:
+          title: "List API keys"
+          sidebarTitle: "List API keys"
+          description: "List API keys (names, suffix, role \u2014 never secrets)"
       operationId: account.keys.list
       summary: List API keys (names, suffix, role — never secrets)
       tags:
@@ -3283,6 +3515,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/account-keys-create
+        metadata:
+          title: "Create an API key"
+          sidebarTitle: "Create an API key"
+          description: "Create an API key (secret shown once; role \u2264 creator's role)"
       operationId: account.keys.create
       summary: Create an API key (secret shown once; role ≤ creator's role)
       tags:
@@ -3342,6 +3578,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/account-keys-revoke
+        metadata:
+          title: "Revoke an API key"
+          sidebarTitle: "Revoke an API key"
+          description: "Revoke an API key"
       operationId: account.keys.revoke
       summary: Revoke an API key
       tags:
@@ -3388,6 +3628,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/leads-lists-list
+        metadata:
+          title: "List your lists"
+          sidebarTitle: "List your lists"
+          description: "List lead lists (exact case-insensitive name filter)"
       operationId: leads.lists.list
       summary: List lead lists (exact case-insensitive name filter)
       tags:
@@ -3440,6 +3684,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-create
+        metadata:
+          title: "Create an empty list"
+          sidebarTitle: "Create an empty list"
+          description: "Create an empty list (no search, no rows, no agent)"
       operationId: leads.lists.create
       summary: Create an empty list (no search, no rows, no agent)
       tags:
@@ -3487,6 +3735,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/leads-lists-get
+        metadata:
+          title: "Get a list"
+          sidebarTitle: "Get a list"
+          description: "Read one list with columns and searches"
       operationId: leads.lists.get
       summary: Read one list with columns and searches
       tags:
@@ -3538,6 +3790,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/leads-lists-patch
+        metadata:
+          title: "Rename a list"
+          sidebarTitle: "Rename a list"
+          description: "Rename a list"
       operationId: leads.lists.patch
       summary: Rename a list
       tags:
@@ -3603,6 +3859,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/leads-lists-delete
+        metadata:
+          title: "Delete a list"
+          sidebarTitle: "Delete a list"
+          description: "Delete a list (previews without confirm; cancels its active Jobs)"
       operationId: leads.lists.delete
       summary: Delete a list (previews without confirm; cancels its active Jobs)
       tags:
@@ -3660,6 +3920,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/leads-lists-stats-get
+        metadata:
+          title: "List stats"
+          sidebarTitle: "List stats"
+          description: "Read the list's sourcing/qualification funnel and credit economics"
       operationId: leads.lists.stats.get
       summary: Read the list's sourcing/qualification funnel and credit economics
       tags:
@@ -3712,6 +3976,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-fetch
+        metadata:
+          title: "Find leads for a list"
+          sidebarTitle: "Find leads for a list"
+          description: "Fetch leads into this list from a brief (AGENT; compact list context)"
       operationId: leads.lists.fetch
       summary: Fetch leads into this list from a brief (AGENT; compact list context)
       tags:
@@ -3799,6 +4067,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-fetch-more
+        metadata:
+          title: "Find more leads"
+          sidebarTitle: "Find more leads"
+          description: "Fetch more from the list's single active search (alias of searches fetch-more)"
       operationId: leads.lists.fetch_more
       summary: Fetch more from the list's single active search (alias of searches
         fetch-more)
@@ -3875,6 +4147,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-enrich
+        metadata:
+          title: "Enrich existing columns"
+          sidebarTitle: "Enrich existing columns"
+          description: "Enrich named code columns (or all auto-trigger columns)"
       operationId: leads.lists.enrich
       summary: Enrich named code columns (or all auto-trigger columns)
       tags:
@@ -3955,6 +4231,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-enrich-custom
+        metadata:
+          title: "Enrich from instructions"
+          sidebarTitle: "Enrich from instructions"
+          description: "Add or fill a column from instructions (AGENT)"
       operationId: leads.lists.enrich_custom
       summary: Add or fill a column from instructions (AGENT)
       tags:
@@ -4033,6 +4313,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-columns-create
+        metadata:
+          title: "Add a column"
+          sidebarTitle: "Add a column"
+          description: "Add a column (static or score; code columns are copy-only)"
       operationId: leads.lists.columns.create
       summary: Add a column (static or score; code columns are copy-only)
       tags:
@@ -4105,6 +4389,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-columns-copy
+        metadata:
+          title: "Copy a column"
+          sidebarTitle: "Copy a column"
+          description: "Copy a column from another list in scope (the only way to get a code column)"
       operationId: leads.lists.columns.copy
       summary: Copy a column from another list in scope (the only way to get a code
         column)
@@ -4180,6 +4468,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/leads-lists-columns-patch
+        metadata:
+          title: "Update a column"
+          sidebarTitle: "Update a column"
+          description: "Patch a column's name, is_active, or relevance_weight"
       operationId: leads.lists.columns.patch
       summary: Patch a column's name, is_active, or relevance_weight
       tags:
@@ -4260,6 +4552,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/leads-lists-columns-delete
+        metadata:
+          title: "Delete a column"
+          sidebarTitle: "Delete a column"
+          description: "Delete a column (409 while other columns depend on it)"
       operationId: leads.lists.columns.delete
       summary: Delete a column (409 while other columns depend on it)
       tags:
@@ -4318,6 +4614,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/leads-lists-rows-list
+        metadata:
+          title: "Read rows"
+          sidebarTitle: "Read rows"
+          description: "Page rows with status fields, score filter, sort, and CSV export"
       operationId: leads.lists.rows.list
       summary: Page rows with status fields, score filter, sort, and CSV export
       tags:
@@ -4438,6 +4738,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/leads-lists-rows-get
+        metadata:
+          title: "Read one row"
+          sidebarTitle: "Read one row"
+          description: "Read one row (hidden rows return directly with status flags)"
       operationId: leads.lists.rows.get
       summary: Read one row (hidden rows return directly with status flags)
       tags:
@@ -4496,6 +4800,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-rows-upsert
+        metadata:
+          title: "Add or update rows"
+          sidebarTitle: "Add or update rows"
+          description: "Upsert rows by match columns (sync; embeds an enrichment Job when enrich: true)"
       operationId: leads.lists.rows.upsert
       summary: "Upsert rows by match columns (sync; embeds an enrichment Job when
         enrich: true)"
@@ -4587,6 +4895,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-lists-rows-delete
+        metadata:
+          title: "Delete rows"
+          sidebarTitle: "Delete rows"
+          description: "Bulk-delete rows (\u22641,000; all rows when omitted; previews without confirm)"
       operationId: leads.lists.rows.delete
       summary: Bulk-delete rows (≤1,000; all rows when omitted; previews without
         confirm)
@@ -4660,6 +4972,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/leads-lists-rows-cells-get
+        metadata:
+          title: "Read one cell"
+          sidebarTitle: "Read one cell"
+          description: "Read one cell (column id, not slug)"
       operationId: leads.lists.rows.cells.get
       summary: Read one cell (column id, not slug)
       tags:
@@ -4724,6 +5040,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/leads-searches-get
+        metadata:
+          title: "Get a search"
+          sidebarTitle: "Get a search"
+          description: "Read a search with pool depth (remaining_count, has_more, tam_known)"
       operationId: leads.searches.get
       summary: Read a search with pool depth (remaining_count, has_more, tam_known)
       tags:
@@ -4776,6 +5096,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-searches-create
+        metadata:
+          title: "Search for leads"
+          sidebarTitle: "Search for leads"
+          description: "One-shot search: brief \u2192 new list + search + first page (AGENT)"
       operationId: leads.searches.create
       summary: "One-shot search: brief → new list + search + first page (AGENT)"
       tags:
@@ -4844,6 +5168,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/leads-searches-fetch-more
+        metadata:
+          title: "Fetch more results"
+          sidebarTitle: "Fetch more results"
+          description: "Fetch more from this search (same criteria, list, and columns)"
       operationId: leads.searches.fetch_more
       summary: Fetch more from this search (same criteria, list, and columns)
       tags:
@@ -4919,6 +5247,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-list
+        metadata:
+          title: "List campaigns"
+          sidebarTitle: "List campaigns"
+          description: "List campaigns (status and exact name filters)"
       operationId: send.campaigns.list
       summary: List campaigns (status and exact name filters)
       tags:
@@ -4980,6 +5312,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-create
+        metadata:
+          title: "Create a campaign"
+          sidebarTitle: "Create a campaign"
+          description: "Create a blank draft campaign (no steps, people, or template required)"
       operationId: send.campaigns.create
       summary: Create a blank draft campaign (no steps, people, or template required)
       tags:
@@ -5039,6 +5375,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-get
+        metadata:
+          title: "Get a campaign"
+          sidebarTitle: "Get a campaign"
+          description: "Read one campaign (recipe-resumable: schema, template, people, settings)"
       operationId: send.campaigns.get
       summary: "Read one campaign (recipe-resumable: schema, template, people,
         settings)"
@@ -5091,6 +5431,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/send-campaigns-delete
+        metadata:
+          title: "Delete a campaign"
+          sidebarTitle: "Delete a campaign"
+          description: "Delete a campaign (previews without confirm; cancels its Jobs)"
       operationId: send.campaigns.delete
       summary: Delete a campaign (previews without confirm; cancels its Jobs)
       tags:
@@ -5148,6 +5492,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-stats-get
+        metadata:
+          title: "Campaign stats"
+          sidebarTitle: "Campaign stats"
+          description: "Read campaign counts and rates (per-variant stats deferred)"
       operationId: send.campaigns.stats.get
       summary: Read campaign counts and rates (per-variant stats deferred)
       tags:
@@ -5200,6 +5548,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-draft
+        metadata:
+          title: "Draft from a brief"
+          sidebarTitle: "Draft from a brief"
+          description: "AGENT shortcut: fill schema + templates from a brief (never launches)"
       operationId: send.campaigns.draft
       summary: "AGENT shortcut: fill schema + templates from a brief (never launches)"
       tags:
@@ -5276,6 +5628,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-launch
+        metadata:
+          title: "Launch a campaign"
+          sidebarTitle: "Launch a campaign"
+          description: "Launch a draft (or resume a paused) campaign; dry_run reports the same gates"
       operationId: send.campaigns.launch
       summary: Launch a draft (or resume a paused) campaign; dry_run reports the same
         gates
@@ -5340,6 +5696,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-pause
+        metadata:
+          title: "Pause a campaign"
+          sidebarTitle: "Pause a campaign"
+          description: "Pause an active campaign (idempotent)"
       operationId: send.campaigns.pause
       summary: Pause an active campaign (idempotent)
       tags:
@@ -5392,6 +5752,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-resume
+        metadata:
+          title: "Resume a campaign"
+          sidebarTitle: "Resume a campaign"
+          description: "Resume a paused campaign (same transition as launch on paused)"
       operationId: send.campaigns.resume
       summary: Resume a paused campaign (same transition as launch on paused)
       tags:
@@ -5445,6 +5809,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-settings-get
+        metadata:
+          title: "Get settings"
+          sidebarTitle: "Get settings"
+          description: "Read campaign settings"
       operationId: send.campaigns.settings.get
       summary: Read campaign settings
       tags:
@@ -5496,6 +5864,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/send-campaigns-settings-patch
+        metadata:
+          title: "Update settings"
+          sidebarTitle: "Update settings"
+          description: "Patch settings (legal in every status; omitted fields unchanged)"
       operationId: send.campaigns.settings.patch
       summary: Patch settings (legal in every status; omitted fields unchanged)
       tags:
@@ -5610,6 +5982,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-senders-list
+        metadata:
+          title: "List campaign senders"
+          sidebarTitle: "List campaign senders"
+          description: "Read the campaign sender pool plus available org personas"
       operationId: send.campaigns.senders.list
       summary: Read the campaign sender pool plus available org personas
       tags:
@@ -5661,6 +6037,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-senders-add
+        metadata:
+          title: "Add a sender"
+          sidebarTitle: "Add a sender"
+          description: "Add an org sender to the campaign pool"
       operationId: send.campaigns.senders.add
       summary: Add an org sender to the campaign pool
       tags:
@@ -5726,6 +6106,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/send-campaigns-senders-remove
+        metadata:
+          title: "Remove a sender"
+          sidebarTitle: "Remove a sender"
+          description: "Remove a pool sender (previews affected_people without confirm)"
       operationId: send.campaigns.senders.remove
       summary: Remove a pool sender (previews affected_people without confirm)
       tags:
@@ -5789,6 +6173,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-people-schema-get
+        metadata:
+          title: "Get the person fields"
+          sidebarTitle: "Get the person fields"
+          description: "Read the campaign's People-tab columns (person_schema)"
       operationId: send.campaigns.people.schema.get
       summary: Read the campaign's People-tab columns (person_schema)
       tags:
@@ -5840,6 +6228,10 @@ paths:
     put:
       x-mint:
         href: /v3/reference/send-campaigns-people-schema-put
+        metadata:
+          title: "Set the person fields"
+          sidebarTitle: "Set the person fields"
+          description: "Replace the person schema ({ fields: [] } means identity-only)"
       operationId: send.campaigns.people.schema.put
       summary: "Replace the person schema ({ fields: [] } means identity-only)"
       tags:
@@ -5923,6 +6315,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-people-upsert
+        metadata:
+          title: "Enroll people"
+          sidebarTitle: "Enroll people"
+          description: "Enroll or update people (sync; from a list or inline; \u22641,000/call)"
       operationId: send.campaigns.people.upsert
       summary: Enroll or update people (sync; from a list or inline; ≤1,000/call)
       tags:
@@ -6057,6 +6453,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-people-list
+        metadata:
+          title: "List enrolled people"
+          sidebarTitle: "List enrolled people"
+          description: "Page enrolled people (status filter includes bounced and unsubscribed)"
       operationId: send.campaigns.people.list
       summary: Page enrolled people (status filter includes bounced and unsubscribed)
       tags:
@@ -6134,6 +6534,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-people-get
+        metadata:
+          title: "Get one person"
+          sidebarTitle: "Get one person"
+          description: "Read one person's sequence: identity, per-step state, sent copy"
       operationId: send.campaigns.people.get
       summary: "Read one person's sequence: identity, per-step state, sent copy"
       tags:
@@ -6191,6 +6595,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/send-campaigns-people-delete
+        metadata:
+          title: "Delete a person"
+          sidebarTitle: "Delete a person"
+          description: "Delete a person (re-opens dedup; force required after sends)"
       operationId: send.campaigns.people.delete
       summary: Delete a person (re-opens dedup; force required after sends)
       tags:
@@ -6254,6 +6662,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/send-campaigns-people-contact-patch
+        metadata:
+          title: "Update contact details"
+          sidebarTitle: "Update contact details"
+          description: "Patch contact info (identity pre-start only; timezone any time)"
       operationId: send.campaigns.people.contact.patch
       summary: Patch contact info (identity pre-start only; timezone any time)
       tags:
@@ -6341,6 +6753,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/send-campaigns-people-steps-patch
+        metadata:
+          title: "Edit one message"
+          sidebarTitle: "Edit one message"
+          description: "Edit one person's rendered copy for a not-yet-sent step"
       operationId: send.campaigns.people.steps.patch
       summary: Edit one person's rendered copy for a not-yet-sent step
       tags:
@@ -6420,6 +6836,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-people-remove
+        metadata:
+          title: "Cancel a sequence"
+          sidebarTitle: "Cancel a sequence"
+          description: "Cancel a sequence; the person stays in the campaign's dedup set"
       operationId: send.campaigns.people.remove
       summary: Cancel a sequence; the person stays in the campaign's dedup set
       tags:
@@ -6488,6 +6908,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-people-stop
+        metadata:
+          title: "Stop a sequence"
+          sidebarTitle: "Stop a sequence"
+          description: "Stop future steps, preserving history"
       operationId: send.campaigns.people.stop
       summary: Stop future steps, preserving history
       tags:
@@ -6556,6 +6980,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-people-remove-bulk
+        metadata:
+          title: "Cancel sequences in bulk"
+          sidebarTitle: "Cancel sequences in bulk"
+          description: "Bulk remove sequences (\u22641,000; per-id outcomes)"
       operationId: send.campaigns.people.remove_bulk
       summary: Bulk remove sequences (≤1,000; per-id outcomes)
       tags:
@@ -6627,6 +7055,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-people-revert
+        metadata:
+          title: "Undo edits to a person"
+          sidebarTitle: "Undo edits to a person"
+          description: "Discard person-level edits and re-render from the current template"
       operationId: send.campaigns.people.revert
       summary: Discard person-level edits and re-render from the current template
       tags:
@@ -6685,6 +7117,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-people-sender-pin
+        metadata:
+          title: "Pin a sender to a person"
+          sidebarTitle: "Pin a sender to a person"
+          description: "Pin a pool sender to one person (optionally per channel)"
       operationId: send.campaigns.people.sender.pin
       summary: Pin a pool sender to one person (optionally per channel)
       tags:
@@ -6761,6 +7197,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/send-campaigns-people-sender-unpin
+        metadata:
+          title: "Unpin a person's sender"
+          sidebarTitle: "Unpin a person's sender"
+          description: "Unpin a person's sender (optionally per channel)"
       operationId: send.campaigns.people.sender.unpin
       summary: Unpin a person's sender (optionally per channel)
       tags:
@@ -6827,6 +7267,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-templates-get
+        metadata:
+          title: "Get the template"
+          sidebarTitle: "Get the template"
+          description: "Read the campaign template (variant_key always present on reads)"
       operationId: send.campaigns.templates.get
       summary: Read the campaign template (variant_key always present on reads)
       tags:
@@ -6878,6 +7322,10 @@ paths:
     put:
       x-mint:
         href: /v3/reference/send-campaigns-templates-put
+        metadata:
+          title: "Replace the template"
+          sidebarTitle: "Replace the template"
+          description: "Replace the whole template (existing variant keys kept, new ones minted)"
       operationId: send.campaigns.templates.put
       summary: Replace the whole template (existing variant keys kept, new ones minted)
       tags:
@@ -7006,6 +7454,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/send-campaigns-templates-clear
+        metadata:
+          title: "Clear the template"
+          sidebarTitle: "Clear the template"
+          description: "Clear the template to { sequences: [] }"
       operationId: send.campaigns.templates.clear
       summary: "Clear the template to { sequences: [] }"
       tags:
@@ -7063,6 +7515,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-templates-sequences-append
+        metadata:
+          title: "Add a variant"
+          sidebarTitle: "Add a variant"
+          description: "Append one template variant (fresh never-reused key)"
       operationId: send.campaigns.templates.sequences.append
       summary: Append one template variant (fresh never-reused key)
       tags:
@@ -7176,6 +7632,10 @@ paths:
     patch:
       x-mint:
         href: /v3/reference/send-campaigns-templates-sequences-patch
+        metadata:
+          title: "Update a variant"
+          sidebarTitle: "Update a variant"
+          description: "Patch one variant's copy, instructions, or paused state"
       operationId: send.campaigns.templates.sequences.patch
       summary: Patch one variant's copy, instructions, or paused state
       tags:
@@ -7293,6 +7753,10 @@ paths:
     delete:
       x-mint:
         href: /v3/reference/send-campaigns-templates-sequences-delete
+        metadata:
+          title: "Delete a variant"
+          sidebarTitle: "Delete a variant"
+          description: "Delete one variant (its key is never reused)"
       operationId: send.campaigns.templates.sequences.delete
       summary: Delete one variant (its key is never reused)
       tags:
@@ -7352,6 +7816,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-examples-generate
+        metadata:
+          title: "Generate messages"
+          sidebarTitle: "Generate messages"
+          description: "Generate per-person copy (one LLM call per person; async Job)"
       operationId: send.campaigns.examples.generate
       summary: Generate per-person copy (one LLM call per person; async Job)
       tags:
@@ -7428,6 +7896,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-examples-list
+        metadata:
+          title: "Read generated messages"
+          sidebarTitle: "Read generated messages"
+          description: "Page enrolled people with rendered steps"
       operationId: send.campaigns.examples.list
       summary: Page enrolled people with rendered steps
       tags:
@@ -7493,6 +7965,10 @@ paths:
     get:
       x-mint:
         href: /v3/reference/send-campaigns-approvals-list
+        metadata:
+          title: "List messages awaiting approval"
+          sidebarTitle: "List messages awaiting approval"
+          description: "Page people currently held for approval, with rendered steps"
       operationId: send.campaigns.approvals.list
       summary: Page people currently held for approval, with rendered steps
       tags:
@@ -7558,6 +8034,10 @@ paths:
     post:
       x-mint:
         href: /v3/reference/send-campaigns-approvals-approve
+        metadata:
+          title: "Approve messages"
+          sidebarTitle: "Approve messages"
+          description: "Release approval holds (all when sequence_ids omitted; idempotent)"
       operationId: send.campaigns.approvals.approve
       summary: Release approval holds (all when sequence_ids omitted; idempotent)
       tags:
