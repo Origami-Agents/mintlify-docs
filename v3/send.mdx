@@ -118,10 +118,18 @@ tell you exactly what's still missing.
       }'
     ```
 
-    `personalized` (and `subject_personalized`) list phrases copied verbatim
-    from the body that should be rewritten per recipient — everything else goes
-    out as written. If a phrase doesn't match the body exactly you get
+    `personalized` (and `subject_personalized`) mark phrases that should be
+    rewritten per recipient. A bare string is the phrase copied verbatim from
+    the body; `{ text, name, instruction }` also names the variable and steers
+    generation. If a phrase doesn't match the body exactly you get
     `409 TEMPLATE_SPANS_INVALID`.
+
+    Step `channel` is `email`, `linkedin_message`, `linkedin_connect`,
+    `linkedin_comment`, `linkedin_react`, or `manual`. `manual` is persistable,
+    not sendable — include it on a GET → PUT so UI-added steps aren't dropped.
+    Comment and react steps act on the person's posts; pass `posts` when you
+    enroll people inline, or the step waits (`on_missing_post: hold`) until a
+    post exists.
 
     Up to 10 variants, 15 steps each. Add arms one at a time with
     [`POST …/templates/sequences`](/v3/reference/send-campaigns-templates-sequences-append)
@@ -172,6 +180,7 @@ tell you exactly what's still missing.
     | `send_window` | Hours and weekdays sends are allowed, in each recipient's timezone |
     | `block_active_duplicates` | Skip anyone already in another running campaign |
     | `block_prior_contacts` | Skip anyone you've contacted before |
+    | `block_already_connected` | Skip LinkedIn sequences for 1st-degree connections of the allocated sender |
     | `require_message_approval` | Hold every message until a human releases it |
     | `allow_excluded_recipients` | Send to people on the exclusion list anyway |
     | `auto_lead_refill_enabled` | Top the campaign up from its list as people finish, capped by `auto_lead_refill_budget_credits` |

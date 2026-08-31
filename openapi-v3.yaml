@@ -5938,6 +5938,8 @@ paths:
                   type: boolean
                 allow_excluded_recipients:
                   type: boolean
+                block_already_connected:
+                  type: boolean
       responses:
         "200":
           description: Success
@@ -5982,9 +5984,9 @@ paths:
         metadata:
           title: "List campaign senders"
           sidebarTitle: "List campaign senders"
-          description: "Read the campaign sender pool plus available org personas"
+          description: "Read the campaign sender pool plus available org senders"
       operationId: send.campaigns.senders.list
-      summary: Read the campaign sender pool plus available org personas
+      summary: Read the campaign sender pool plus available org senders
       tags:
         - send
       parameters:
@@ -6379,6 +6381,38 @@ paths:
                         type: object
                         additionalProperties:
                           type: string
+                      posts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            social_id:
+                              type: string
+                              minLength: 1
+                              maxLength: 200
+                            text:
+                              type: string
+                              maxLength: 20000
+                            url:
+                              type: string
+                              maxLength: 2000
+                            posted_at:
+                              anyOf:
+                                - type: string
+                                - type: number
+                            platform:
+                              type: string
+                              enum:
+                                - linkedin
+                            image_url:
+                              type: string
+                              maxLength: 2000
+                            is_reshare:
+                              type: boolean
+                          required:
+                            - social_id
+                          additionalProperties: false
+                        maxItems: 20
                     required:
                       - why_this_person
                     additionalProperties: false
@@ -7372,6 +7406,9 @@ paths:
                                 - email
                                 - linkedin_message
                                 - linkedin_connect
+                                - linkedin_comment
+                                - linkedin_react
+                                - manual
                             subject:
                               type: string
                               maxLength: 300
@@ -7385,15 +7422,83 @@ paths:
                             personalized:
                               type: array
                               items:
-                                type: string
-                                minLength: 1
+                                anyOf:
+                                  - type: string
+                                    minLength: 1
+                                  - type: object
+                                    properties:
+                                      text:
+                                        type: string
+                                        minLength: 1
+                                      name:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 80
+                                      instruction:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 1000
+                                    required:
+                                      - text
+                                    additionalProperties: false
                               maxItems: 20
                             subject_personalized:
                               type: array
                               items:
-                                type: string
-                                minLength: 1
+                                anyOf:
+                                  - type: string
+                                    minLength: 1
+                                  - type: object
+                                    properties:
+                                      text:
+                                        type: string
+                                        minLength: 1
+                                      name:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 80
+                                      instruction:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 1000
+                                    required:
+                                      - text
+                                    additionalProperties: false
                               maxItems: 20
+                            target_post:
+                              type: object
+                              properties:
+                                mode:
+                                  type: string
+                                  enum:
+                                    - latest
+                                    - alias
+                                    - writer_pick
+                                alias:
+                                  type: string
+                                  pattern: ^post_[1-9][0-9]*$
+                              required:
+                                - mode
+                              additionalProperties: false
+                            on_missing_post:
+                              type: string
+                              enum:
+                                - hold
+                                - skip
+                            reaction:
+                              type: string
+                              enum:
+                                - like
+                                - celebrate
+                                - support
+                                - love
+                                - insightful
+                                - funny
+                            reaction_mode:
+                              type: string
+                              enum:
+                                - fixed
+                                - match_post
                           required:
                             - channel
                             - body
@@ -7557,6 +7662,9 @@ paths:
                           - email
                           - linkedin_message
                           - linkedin_connect
+                          - linkedin_comment
+                          - linkedin_react
+                          - manual
                       subject:
                         type: string
                         maxLength: 300
@@ -7570,15 +7678,83 @@ paths:
                       personalized:
                         type: array
                         items:
-                          type: string
-                          minLength: 1
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: object
+                              properties:
+                                text:
+                                  type: string
+                                  minLength: 1
+                                name:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                instruction:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 1000
+                              required:
+                                - text
+                              additionalProperties: false
                         maxItems: 20
                       subject_personalized:
                         type: array
                         items:
-                          type: string
-                          minLength: 1
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: object
+                              properties:
+                                text:
+                                  type: string
+                                  minLength: 1
+                                name:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                instruction:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 1000
+                              required:
+                                - text
+                              additionalProperties: false
                         maxItems: 20
+                      target_post:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                            enum:
+                              - latest
+                              - alias
+                              - writer_pick
+                          alias:
+                            type: string
+                            pattern: ^post_[1-9][0-9]*$
+                        required:
+                          - mode
+                        additionalProperties: false
+                      on_missing_post:
+                        type: string
+                        enum:
+                          - hold
+                          - skip
+                      reaction:
+                        type: string
+                        enum:
+                          - like
+                          - celebrate
+                          - support
+                          - love
+                          - insightful
+                          - funny
+                      reaction_mode:
+                        type: string
+                        enum:
+                          - fixed
+                          - match_post
                     required:
                       - channel
                       - body
@@ -7681,6 +7857,9 @@ paths:
                           - email
                           - linkedin_message
                           - linkedin_connect
+                          - linkedin_comment
+                          - linkedin_react
+                          - manual
                       subject:
                         type: string
                         maxLength: 300
@@ -7694,15 +7873,83 @@ paths:
                       personalized:
                         type: array
                         items:
-                          type: string
-                          minLength: 1
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: object
+                              properties:
+                                text:
+                                  type: string
+                                  minLength: 1
+                                name:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                instruction:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 1000
+                              required:
+                                - text
+                              additionalProperties: false
                         maxItems: 20
                       subject_personalized:
                         type: array
                         items:
-                          type: string
-                          minLength: 1
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: object
+                              properties:
+                                text:
+                                  type: string
+                                  minLength: 1
+                                name:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                instruction:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 1000
+                              required:
+                                - text
+                              additionalProperties: false
                         maxItems: 20
+                      target_post:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                            enum:
+                              - latest
+                              - alias
+                              - writer_pick
+                          alias:
+                            type: string
+                            pattern: ^post_[1-9][0-9]*$
+                        required:
+                          - mode
+                        additionalProperties: false
+                      on_missing_post:
+                        type: string
+                        enum:
+                          - hold
+                          - skip
+                      reaction:
+                        type: string
+                        enum:
+                          - like
+                          - celebrate
+                          - support
+                          - love
+                          - insightful
+                          - funny
+                      reaction_mode:
+                        type: string
+                        enum:
+                          - fixed
+                          - match_post
                     required:
                       - channel
                       - body
@@ -8275,4 +8522,5 @@ components:
         - not_a_fit
         - duplicate
         - already_contacted
+        - already_connected
         - campaign_deleted

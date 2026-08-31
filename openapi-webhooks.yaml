@@ -126,6 +126,40 @@ webhooks:
         "200":
           description: Receiver acknowledged.
 
+  sequence.comment.posted:
+    post:
+      x-mint:
+        href: /webhooks/events/comment-posted
+      operationId: sequenceCommentPosted
+      summary: Comment posted
+      description: |
+        Origami POSTs this event when a sequencer LinkedIn comment is
+        published on the prospect's post.
+
+        This is deliberately NOT `sequence.message.sent`: a comment is a
+        public action on someone's post, not a message delivered to them,
+        so receivers that log sends to a CRM should record it as an
+        engagement touch rather than as outreach.
+
+        `data.comment.post_url` is the permalink of the post that was
+        commented on (the copy captured when the comment was written, so
+        it stays correct even after the prospect's newer posts arrive).
+        `data.comment.comment_id` is the provider-side id, when the
+        provider returned one.
+
+        Likes (`linkedin_react`) fire no event.
+
+        **Default in the picker:** off.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SequenceCommentPostedEnvelope"
+      responses:
+        "200":
+          description: Receiver acknowledged.
+
   table.run.completed:
     post:
       x-mint:
@@ -473,6 +507,64 @@ components:
         - requested_at
         - connected_at
 
+    CommentPostedData:
+      type: object
+      properties:
+        channel:
+          type: string
+          enum: [linkedin]
+        sequence_id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Campaign this sequence belongs to; null for sequences that
+            predate campaigns or whose campaign link was severed. The join
+            key for routing a comment back to the campaign that produced it.
+        step_index:
+          type: integer
+          minimum: 0
+        message_id:
+          type: string
+          format: uuid
+        outreach_target:
+          $ref: "#/components/schemas/OutreachTarget"
+        sender:
+          $ref: "#/components/schemas/Sender"
+        comment:
+          type: object
+          properties:
+            body:
+              type: string
+              description: The published comment text.
+            body_truncated:
+              type: boolean
+            comment_id:
+              type: string
+              nullable: true
+              description: Provider-side comment id; null when the provider returned none.
+            post_url:
+              type: string
+              nullable: true
+              description: Permalink of the post that was commented on; null when unknown.
+          required: [body, body_truncated, comment_id, post_url]
+        posted_at:
+          type: string
+          format: date-time
+      required:
+        - channel
+        - sequence_id
+        - campaign_id
+        - step_index
+        - message_id
+        - outreach_target
+        - sender
+        - comment
+        - posted_at
+
     WebhookTestData:
       type: object
       properties:
@@ -601,6 +693,19 @@ components:
           $ref: "#/components/schemas/EventTimestamp"
         data:
           $ref: "#/components/schemas/ConnectionAcceptedData"
+      required: [type, id, timestamp, data]
+
+    SequenceCommentPostedEnvelope:
+      type: object
+      properties:
+        type:
+          const: sequence.comment.posted
+        id:
+          $ref: "#/components/schemas/EnvelopeId"
+        timestamp:
+          $ref: "#/components/schemas/EventTimestamp"
+        data:
+          $ref: "#/components/schemas/CommentPostedData"
       required: [type, id, timestamp, data]
 
     TableRunCompletedEnvelope:

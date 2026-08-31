@@ -53,6 +53,7 @@ using the `run_id` from the payload (or `enrichment_run.tableRunId` from the ups
 | `sequence.reply.received` | An inbound email or LinkedIn DM matched an outbound sequence. | on |
 | `sequence.connection.requested` | A sequencer LinkedIn invite was sent. | off |
 | `sequence.connection.accepted` | A LinkedIn invite from a sequence was accepted. | on |
+| `sequence.comment.posted` | A sequencer LinkedIn comment was published on the prospect's post. Likes (`linkedin_react`) fire no event. | off |
 | `webhook.test` | You clicked **Test endpoint** in the dashboard or called `POST /api/v3/account/webhooks/{webhook_id}/test`. Always delivered, regardless of subscription. | n/a |
 
 Every sequencer payload carries `campaign_id` (nullable) — the join key

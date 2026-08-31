@@ -105,9 +105,11 @@ self-identifying:
 
   <Accordion title="Template — the messages, before personalization" icon="file-pen">
     A template is a set of **variants** (A/B arms). Each variant has an
-    `instructions` steer and a list of **steps**: a channel, a body, a
-    `delay_days`, and which parts should be personalized per recipient. Every
-    variant keeps a `variant_key` that is never reused.
+    `instructions` steer and a list of **steps**: a channel (`email`,
+    `linkedin_message`, `linkedin_connect`, `linkedin_comment`,
+    `linkedin_react`, or `manual`), a body, a `delay_days`, and which parts
+    should be personalized per recipient. Every variant keeps a `variant_key`
+    that is never reused.
 
     **Comes from** [`PUT /send/campaigns/{campaign_id}/templates`](/v3/reference/send-campaigns-templates-put)
     to replace the whole thing, or
