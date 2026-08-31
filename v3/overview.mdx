@@ -88,11 +88,29 @@ same behavior:
 | Transport | Use it when |
 | --- | --- |
 | **HTTP** — `https://origami.chat/api/v3` | You're writing code. Everything on this tab documents it. |
-| **MCP** — `https://mcp.origami.chat` | You want an AI assistant to drive Origami directly. |
+| **MCP** — `https://origami.chat/mcp` | You want an AI assistant to drive Origami directly. |
 | **CLI** — `origami` | You're working in a terminal or a shell script. |
 
 Operation ids like `leads.searches.create` are the same in all three, so the
 reference pages here apply whichever one you use.
+
+The MCP server is streamable HTTP at `/mcp`, with the same `og_live_…` bearer
+as `/api/v3`. Point Cursor (or any MCP client) at:
+
+```json
+{
+  "mcpServers": {
+    "origami": {
+      "url": "https://origami.chat/mcp",
+      "headers": {
+        "Authorization": "Bearer og_live_…"
+      }
+    }
+  }
+}
+```
+
+Use `https://origami.chat/mcp`. `https://mcp.origami.chat` is not a host.
 
 <Tip>
   Building with an AI coding assistant?

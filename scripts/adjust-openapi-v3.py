@@ -400,7 +400,8 @@ def expand_info_description(text: str) -> str:
     The Origami **v3 API** is the current public surface: named, typed
     operations in three sections (**Account**, **Leads**, **Send**) plus
     one shared **Job** resource for all async work. The same catalog
-    drives HTTP, the hosted MCP server, and the `origami` CLI.
+    drives HTTP (`https://origami.chat/api/v3`), the hosted MCP server
+    (`https://origami.chat/mcp`), and the `origami` CLI.
 
     **Wire conventions.** Fields are `snake_case`. Every object carries
     an `object` type field. Every list is

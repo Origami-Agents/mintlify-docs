@@ -23,3 +23,23 @@ key in **Settings → Developers**), restart your AI tool, and try:
 > Find 30 B2B SaaS founders in Austin who raised seed in 2025.
 
 Re-run the installer any time to update the skills.
+
+## Connect MCP
+
+The live v3 MCP endpoint is `https://origami.chat/mcp`. It uses the same
+`og_live_…` bearer as `/api/v3`. Point Cursor (or any MCP client) at:
+
+```json
+{
+  "mcpServers": {
+    "origami": {
+      "url": "https://origami.chat/mcp",
+      "headers": {
+        "Authorization": "Bearer og_live_…"
+      }
+    }
+  }
+}
+```
+
+Use that path. `https://mcp.origami.chat` is not a host.
