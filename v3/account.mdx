@@ -65,7 +65,6 @@ silently at send time.
 | Set the daily cap, signature, timezone, or gap between sends | [`PATCH …/senders/{sender_id}`](/v3/reference/account-senders-patch) |
 | Turn on warmup (plan-gated) | [`POST …/warmup/enable`](/v3/reference/account-senders-warmup-enable) |
 | Fix a sender showing `needs_reauth` | [`POST …/reconnect`](/v3/reference/account-senders-reconnect) |
-| Send from an alias instead of the mailbox address | [`GET …/send-as-aliases`](/v3/reference/account-senders-send-as-aliases-list), then set `send_as_email` |
 
 A sender whose authorization expired reports `needs_reauth` and blocks any
 campaign launch that depends on it. Poll
