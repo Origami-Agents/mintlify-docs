@@ -3676,10 +3676,10 @@ components:
           description: Full LinkedIn profile URL derived from the slug.
         source:
           type: string
-          description: 'Normalized provider: gmail | outlook | smtp | linkedin.'
+          description: 'Normalized provider: gmail | outlook | smtp | linkedin. The Origami Emails sender returns its raw provider, origami-email-pool.'
         origamiOrigin:
           type: boolean
-          description: True when Origami provisioned this account (done-for-you inboxes); false for accounts the user connected themselves.
+          description: True when Origami provisioned or runs this account (done-for-you inboxes, Origami Emails); false for accounts the user connected themselves.
         status:
           type: string
           description: active | needs_reauth | provisioning | reconnecting | error | disconnected.
