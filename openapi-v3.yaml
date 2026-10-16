@@ -5649,9 +5649,10 @@ paths:
         metadata:
           title: "Pause a campaign"
           sidebarTitle: "Pause a campaign"
-          description: "Pause an active campaign (idempotent)"
+          description: "Pause an active campaign (idempotent); a campaign that never launched is refused"
       operationId: send.campaigns.pause
-      summary: Pause an active campaign (idempotent)
+      summary: Pause an active campaign (idempotent); a campaign that never launched
+        is refused
       tags:
         - send
       parameters:
@@ -5687,7 +5688,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (see error codes)
+          description: Conflict (NOT_LAUNCHED)
           content:
             application/json:
               schema:

@@ -2276,7 +2276,8 @@ paths:
       summary: Pause a campaign (idempotent; ?dryRun=true)
       description: |
         Pauses the campaign. Idempotent; pausing an already-paused campaign
-        is a no-op. `?dryRun=true` returns
+        is a no-op. A campaign that never launched is refused with
+        409 `NOT_LAUNCHED` (a draft is held by not launching it). `?dryRun=true` returns
         `{ dryRun: true, campaignId, wouldPause }` with no writes; a real
         pause returns the transition result carrying the `pause` facts.
       operationId: pauseCampaignById
@@ -2303,6 +2304,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldPause: { type: boolean }
         '404': { description: CAMPAIGN_NOT_FOUND. }
+        '409': { description: 'NOT_LAUNCHED: the campaign never launched, so there is nothing to pause; nothing changed.' }
   /campaigns/{campaignId}/resume:
     parameters:
       - $ref: '#/components/parameters/CampaignId'
