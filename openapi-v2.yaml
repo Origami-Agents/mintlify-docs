@@ -2757,7 +2757,9 @@ paths:
         in a workspace); `campaignId` narrows to the senders bound to that
         campaign's live sequences ("who does this campaign send from?").
         Defaults to every status except `disconnected` (removed accounts);
-        pass an explicit `status` list to override.
+        pass an explicit `status` list to override. The Origami Emails
+        sender is listed only while the org's plan can use it or one of its
+        campaigns has it as a sender.
       operationId: listSenders
       deprecated: true
       x-mint:
@@ -3661,12 +3663,12 @@ components:
         displayName:
           type: string
           nullable: true
-          description: Human name where known (from-name / LinkedIn profile name); falls back to the email address / slug.
+          description: Human name where known (from-name / LinkedIn profile name); falls back to the email address / slug. Always "Origami Emails" for the Origami Emails sender.
         email:
           type: string
           format: email
           nullable: true
-          description: Mailbox address. Null for LinkedIn senders.
+          description: Mailbox address. Null for LinkedIn senders. The Origami Emails sender sends from shared mailboxes, so its value is a placeholder ending in .invalid, never an address mail goes out from.
         linkedinSlug:
           type: string
           nullable: true
