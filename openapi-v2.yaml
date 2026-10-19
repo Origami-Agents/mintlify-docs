@@ -3956,8 +3956,8 @@ components:
                 markers).
               - Tool calls are limited to the interactive widgets a
                 non-dev user actually sees: `ask-questions`,
-                `present-plan`, `contact-support`,
-                `suggest-document-write`. The code the agent ran
+                `present-plan`, `suggest-document-write`, and
+                `contact-support` (older transcripts only). The code the agent ran
                 (`execute-code`), the VFS reads (`list-dir`,
                 `read-file`, `grep`), and operational tools
                 (`flag-session`) are dropped along with their results.
