@@ -199,6 +199,7 @@ TITLES = {
     "send.campaigns.examples.generate": "Generate messages",
     "send.campaigns.approvals.list": "List messages awaiting approval",
     "send.campaigns.approvals.approve": "Approve messages",
+    "send.replies.list": "List replies",
 }
 
 

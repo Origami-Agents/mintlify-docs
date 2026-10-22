@@ -3,10 +3,13 @@ info:
   title: Origami API
   version: "1.0"
   description: |
-    > **Deprecated.** v1 is superseded by the canonical
-    > [v2 API](./openapi-v2) (five segments: Projects, Agents, Workspace,
-    > Outreach, Account). v1 remains fully functional with **no removal date in this
-    > release**, but new integrations should target v2. See the
+    > **Deprecated.** v1 is superseded by the [v3 API](/v3/overview)
+    > (named typed operations, shared Jobs, hosted MCP + CLI). See the
+    > [v2 to v3 migration guide](/api-v2-to-v3-migration). The
+    > [v2 API](./openapi-v2) (six segments: Projects, Agents, Workspace,
+    > Outreach, Senders, Account) is also deprecated for new integrations.
+    > v1 remains fully functional with **no removal date in this
+    > release**, but new integrations should target v3. For existing v2 migrations, see the
     > [v1 → v2 migration guide](./api-v1-to-v2-migration): `GET /tables` →
     > `GET /api/v2/tables`, `GET /tables/:id/rows` →
     > `GET /api/v2/tables/:tableId/rows`, `POST /tables/:id/rows` →
@@ -103,6 +106,7 @@ paths:
   /tables:
     get:
       operationId: listTables
+      deprecated: true
       summary: List tables
       description: |
         Returns all tables in the organization with column metadata.
@@ -181,6 +185,7 @@ paths:
   /tables/{tableId}/rows:
     get:
       operationId: getTableRows
+      deprecated: true
       summary: Read table rows
       description: |
         Read all rows in a table with pagination, filtering, and sorting.
@@ -208,7 +213,10 @@ paths:
             type: string
           description: |
             JSON-encoded array of filter objects. Each filter uses a column **slug**
-            (from `GET /tables`), an `operator`, and a `value`.
+            (from `GET /tables`), an `operator`, and a `value`. A row-level field
+            name (`relevance_score`, `duplicates`, `excluded`, `disapproved`,
+            `triage_state`) is accepted in place of a slug, so every entry of a
+            table's `defaultFilters` can be passed back here verbatim.
 
             Operators: `contains`, `not_contains`, `equals`, `not_equals`,
             `is_empty`, `is_not_empty`, `greater_than`, `greater_than_or_equal`,
@@ -240,8 +248,18 @@ paths:
             default: "true"
           description: |
             Whether to apply the table's saved filters and sort order (the same
-            ones shown in the Origami dashboard). Set to `false` to get all rows
-            unfiltered, in insertion order.
+            ones shown in the Origami dashboard, and the same set `GET /tables`
+            reports as `defaultFilters` / `defaultSort`). Most tables carry a
+            quality filter that hides disqualified rows, so this is usually the
+            difference between the dashboard's row count and the full table.
+            Set to `false` to get every row, in insertion order.
+
+            Duplicate, excluded and removed rows are hidden by default on every
+            read; `defaults=false` does not surface them. Include them with an
+            explicit filter
+            (`{"column":"duplicates","operator":"equals","value":"include"}`,
+            likewise `excluded` and `disapproved`), or leave `defaults=true` on
+            a table whose saved view already unhides them.
         - name: format
           in: query
           schema:
@@ -314,6 +332,7 @@ paths:
 
     post:
       operationId: insertRows
+      deprecated: true
       summary: Insert rows
       description: |
         Insert rows into an existing table. Returns a batch ID immediately; poll
@@ -448,6 +467,7 @@ paths:
   /batches/{batchId}:
     get:
       operationId: getBatch
+      deprecated: true
       summary: Get batch
       description: |
         Check the status of an async batch. When all enrichments are complete, the
@@ -590,6 +610,7 @@ paths:
   /credits:
     get:
       operationId: getCredits
+      deprecated: true
       summary: Get credit balance
       description: |
         Returns the current credit balance for the organization tied to this API key.
@@ -673,7 +694,10 @@ components:
           description: Name of the workspace containing the table.
         rowCount:
           type: integer
-          description: Number of active (non-deleted) rows.
+          description: |
+            Number of active (non-deleted) rows, counted before any filtering.
+            It is therefore normally larger than the `total` a rows read
+            reports, which counts only rows matching that request's filters.
         columns:
           type: array
           items:
@@ -682,15 +706,24 @@ components:
           type: array
           nullable: true
           description: |
-            Filters currently applied to this table in the Origami dashboard.
-            `null` when no filters are active. Column references use slugs.
+            The table's saved filters, as a rows read with `defaults=true`
+            applies them. Not the complete effective filter set: duplicate,
+            excluded and removed rows are hidden on every read regardless of
+            what appears here. `null` when no filters are saved. Column references are column slugs,
+            except for row-level fields (`relevance_score`, `duplicates`,
+            `excluded`, `disapproved`, `triage_state`), which appear under
+            their own names. Every entry can be passed back verbatim as a
+            `filters` item on `GET /tables/{tableId}/rows`.
           items:
             type: object
             required: [column, operator, value]
             properties:
               column:
                 type: string
-                description: Column slug.
+                description: |
+                  Column slug, or a row-level field name (`relevance_score`,
+                  `duplicates`, `excluded`, `disapproved`, `triage_state`) -
+                  those have no entry in `columns[]`.
               operator:
                 type: string
                 description: Filter operator (e.g. `equals`, `contains`, `is_not_empty`).
@@ -700,13 +733,17 @@ components:
           type: object
           nullable: true
           description: |
-            Sort order currently applied to this table in the Origami dashboard.
-            `null` when no sort is active.
+            Sort order currently applied to this table in the Origami dashboard,
+            and the order a rows read with `defaults=true` returns. `null` when
+            no sort is active, in which case rows come back in insertion order.
           required: [column, direction]
           properties:
             column:
               type: string
-              description: Column slug.
+              description: |
+                Column slug, or a sortable row-level field (`relevance_score`,
+                `created_at`, `updated_at`) - those have no entry in
+                `columns[]`.
             direction:
               type: string
               enum: [asc, desc]
@@ -930,7 +967,11 @@ components:
             $ref: "#/components/schemas/Row"
         total:
           type: integer
-          description: Total number of rows matching the query (before pagination).
+          description: |
+            Total number of rows matching the query, before pagination - i.e.
+            after the request's filters, or the table's saved filters when
+            `defaults` is left on, and always after the invariant hiding of
+            duplicate, excluded and removed rows.
         page:
           type: integer
           description: Current page index (zero-based).

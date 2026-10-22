@@ -1397,8 +1397,9 @@ paths:
                   nullable: true
                 send_as_email:
                   type: string
-                  format: email
                   nullable: true
+                  description: "Removed. Mail always sends from the mailbox address: a non-empty
+                    value returns 400 SEND_AS_REMOVED, null is a no-op."
                 daily_limit:
                   type: integer
                   minimum: 1
@@ -1440,8 +1441,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (SEND_AS_NOT_ALLOWED, SEND_AS_LOOKUP_FAILED,
-            SEND_AS_MULTI_STEP_SEQUENCE)
+          description: Conflict (ORIGAMI_EMAILS_MANAGED)
           content:
             application/json:
               schema:
@@ -1501,7 +1501,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (see error codes)
+          description: Conflict (ORIGAMI_EMAILS_MANAGED)
           content:
             application/json:
               schema:
@@ -1830,62 +1830,6 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: Conflict (IMAP_REAUTH_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-  /account/senders/{sender_id}/send-as-aliases:
-    get:
-      x-mint:
-        href: /v3/reference/account-senders-send-as-aliases-list
-        metadata:
-          title: "List send-as aliases"
-          sidebarTitle: "List send-as aliases"
-          description: "List verified send-as aliases (empty for IMAP/LinkedIn senders)"
-      operationId: account.senders.send_as_aliases.list
-      summary: List verified send-as aliases (empty for IMAP/LinkedIn senders)
-      tags:
-        - account
-      parameters:
-        - name: sender_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          description: Validation error (unknown fields are rejected)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: Conflict (SEND_AS_LOOKUP_FAILED)
           content:
             application/json:
               schema:
@@ -5486,6 +5430,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "503":
+          description: Temporarily locked by a concurrent write - retry
+            (SEQUENCE_DELETION_LOCKED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /send/campaigns/{campaign_id}/stats:
     get:
       x-mint:
@@ -5679,7 +5630,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: Conflict (ACCOUNT_CONNECTION_REQUIRED, ACCOUNT_RECONNECT_REQUIRED,
-            NO_STEPS, NO_PEOPLE, OUT_OF_LEADS, ALL_VARIANTS_PAUSED)
+            NO_STEPS, NO_PEOPLE, OUT_OF_LEADS, ALL_VARIANTS_PAUSED,
+            SUBSCRIPTION_REQUIRED)
           content:
             application/json:
               schema:
@@ -5697,9 +5649,10 @@ paths:
         metadata:
           title: "Pause a campaign"
           sidebarTitle: "Pause a campaign"
-          description: "Pause an active campaign (idempotent)"
+          description: "Pause an active campaign (idempotent); a campaign that never launched is refused"
       operationId: send.campaigns.pause
-      summary: Pause an active campaign (idempotent)
+      summary: Pause an active campaign (idempotent); a campaign that never launched
+        is refused
       tags:
         - send
       parameters:
@@ -5735,7 +5688,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (see error codes)
+          description: Conflict (NOT_LAUNCHED)
           content:
             application/json:
               schema:
@@ -5792,7 +5745,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: Conflict (ACCOUNT_CONNECTION_REQUIRED, ACCOUNT_RECONNECT_REQUIRED,
-            NO_STEPS, NO_PEOPLE, OUT_OF_LEADS, ALL_VARIANTS_PAUSED)
+            NO_STEPS, NO_PEOPLE, OUT_OF_LEADS, ALL_VARIANTS_PAUSED,
+            SUBSCRIPTION_REQUIRED)
           content:
             application/json:
               schema:
@@ -5898,6 +5852,11 @@ paths:
                       - linkedin
                   minItems: 1
                   maxItems: 2
+                  description: "Only settable before the campaign has template steps. Once it
+                    does, the template's steps are the channel set: a matching
+                    set is accepted as a no-op, a different set is 400
+                    VALIDATION_ERROR (change channels by rewriting the template
+                    via PUT /send/campaigns/:id/templates)"
                 send_window:
                   type: object
                   properties:
@@ -5917,6 +5876,15 @@ paths:
                         maximum: 6
                       minItems: 1
                       maxItems: 7
+                    basis:
+                      type: string
+                      enum:
+                        - recipient
+                        - sender
+                      description: "Whose clock email uses: each person's own zone with the sender's
+                        as the fallback (recipient, the default) or the sender's
+                        for everyone; LinkedIn always uses the sender's. Omitted
+                        on a write keeps the stored choice"
                   required:
                     - start_hour
                     - end_hour
@@ -5941,6 +5909,11 @@ paths:
                   type: boolean
                 block_already_connected:
                   type: boolean
+                cross_channel_fallback:
+                  type: string
+                  enum:
+                    - use_other_sender
+                    - skip_channel
       responses:
         "200":
           description: Success
@@ -6091,7 +6064,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (ACCOUNT_CONNECTION_REQUIRED)
+          description: Conflict (ACCOUNT_CONNECTION_REQUIRED,
+            SENDER_AWAITING_VERIFICATION, ORIGAMI_EMAILS_UNAVAILABLE)
           content:
             application/json:
               schema:
@@ -6587,6 +6561,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - sequence
+              - person
       responses:
         "200":
           description: Success
@@ -6686,6 +6668,13 @@ paths:
                 $ref: "#/components/schemas/Error"
         "429":
           description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Temporarily locked by a concurrent write - retry
+            (SEQUENCE_DELETION_LOCKED)
           content:
             application/json:
               schema:
@@ -6853,7 +6842,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (STEP_ALREADY_SENT)
+          description: Conflict (STEP_ALREADY_SENT, COPY_REFUSED, EXAMPLES_ALREADY_RUNNING)
           content:
             application/json:
               schema:
@@ -7134,7 +7123,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (NOT_REVERTABLE)
+          description: Conflict (NOT_REVERTABLE, CAMPAIGN_PAUSED, COPY_REFUSED,
+            EXAMPLES_ALREADY_RUNNING)
           content:
             application/json:
               schema:
@@ -7500,6 +7490,11 @@ paths:
                               enum:
                                 - fixed
                                 - match_post
+                            connection_wait_minutes:
+                              type: integer
+                              minimum: 1
+                              maximum: 43200
+                              nullable: true
                           required:
                             - channel
                             - body
@@ -7515,6 +7510,9 @@ paths:
                   type: string
                   maxLength: 200
                   nullable: true
+                max_resync_people:
+                  type: integer
+                  minimum: 0
               required:
                 - sequences
       responses:
@@ -7543,7 +7541,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (TEMPLATE_SPANS_INVALID)
+          description: Conflict (TEMPLATE_SPANS_INVALID, RESYNC_QUOTE_EXCEEDED)
           content:
             application/json:
               schema:
@@ -7756,6 +7754,11 @@ paths:
                         enum:
                           - fixed
                           - match_post
+                      connection_wait_minutes:
+                        type: integer
+                        minimum: 1
+                        maximum: 43200
+                        nullable: true
                     required:
                       - channel
                       - body
@@ -7763,6 +7766,9 @@ paths:
                     additionalProperties: false
                   minItems: 1
                   maxItems: 15
+                max_resync_people:
+                  type: integer
+                  minimum: 0
               required:
                 - steps
       responses:
@@ -7791,7 +7797,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (TEMPLATE_SPANS_INVALID)
+          description: Conflict (TEMPLATE_SPANS_INVALID, RESYNC_QUOTE_EXCEEDED)
           content:
             application/json:
               schema:
@@ -7951,6 +7957,11 @@ paths:
                         enum:
                           - fixed
                           - match_post
+                      connection_wait_minutes:
+                        type: integer
+                        minimum: 1
+                        maximum: 43200
+                        nullable: true
                     required:
                       - channel
                       - body
@@ -7958,6 +7969,9 @@ paths:
                     additionalProperties: false
                   minItems: 1
                   maxItems: 15
+                max_resync_people:
+                  type: integer
+                  minimum: 0
       responses:
         "200":
           description: Success
@@ -7984,7 +7998,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (TEMPLATE_SPANS_INVALID)
+          description: Conflict (TEMPLATE_SPANS_INVALID, RESYNC_QUOTE_EXCEEDED)
           content:
             application/json:
               schema:
@@ -8020,6 +8034,12 @@ paths:
             type: string
             minLength: 1
             maxLength: 40
+        - name: max_resync_people
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
       responses:
         "200":
           description: Success
@@ -8046,7 +8066,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (see error codes)
+          description: Conflict (RESYNC_QUOTE_EXCEEDED)
           content:
             application/json:
               schema:
@@ -8064,9 +8084,10 @@ paths:
         metadata:
           title: "Generate messages"
           sidebarTitle: "Generate messages"
-          description: "Generate per-person copy (one LLM call per person; async Job)"
+          description: "Generate per-person copy (one LLM call per person; async Job - an unscoped call renders the whole campaign)"
       operationId: send.campaigns.examples.generate
-      summary: Generate per-person copy (one LLM call per person; async Job)
+      summary: Generate per-person copy (one LLM call per person; async Job - an
+        unscoped call renders the whole campaign)
       tags:
         - send
       parameters:
@@ -8096,7 +8117,7 @@ paths:
                     type: string
                     format: uuid
                   minItems: 1
-                  maxItems: 200
+                  maxItems: 30
                 metadata:
                   type: object
                   additionalProperties:
@@ -8127,7 +8148,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (NO_TEMPLATE, NO_PEOPLE, EXAMPLES_ALREADY_RUNNING)
+          description: Conflict (NO_TEMPLATE, NO_PEOPLE, EXAMPLES_ALREADY_RUNNING,
+            CAMPAIGN_PAUSED)
           content:
             application/json:
               schema:
@@ -8346,6 +8368,97 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /send/replies:
+    get:
+      x-mint:
+        href: /v3/reference/send-replies-list
+        metadata:
+          title: "List replies"
+          sidebarTitle: "List replies"
+          description: "Page historical outreach replies (plain body + campaign/sequence ids; defaults to from=lead)"
+      operationId: send.replies.list
+      summary: Page historical outreach replies (plain body + campaign/sequence ids;
+        defaults to from=lead)
+      tags:
+        - send
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: campaign_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: sequence_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^(\d{4})-(\d{2})-(\d{2})(?:[T
+              ](\d{2}):(\d{2}):(\d{2})(\.\d+)?(?:Z|[+-](\d{2})(?::(\d{2}))?)?)?$
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - lead
+              - self
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -8501,6 +8614,7 @@ components:
         - stopped
         - awaiting_accept
         - skipped
+        - not_connected
         - ongoing
         - replied
         - deleted

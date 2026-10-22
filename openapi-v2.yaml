@@ -3,7 +3,13 @@ info:
   title: Origami Agent API
   version: "2.0"
   description: |
-    The Origami **v2 API** is the single canonical public surface,
+    > **Deprecated for new integrations.** v2 keeps working (same keys, no
+    > removal date, no behavior changes), but new integrations should target
+    > the [v3 API](/v3/overview) (`/api/v3`): named typed
+    > operations, one shared Job for async work, hosted MCP + CLI. See
+    > the [v2 to v3 migration guide](/api-v2-to-v3-migration) for the 1:1 flow map.
+
+    The Origami **v2 API** is the previous public API,
     organized into six segments: **Projects** (tenancy), **Agents**,
     **Workspace**, **Outreach** (campaigns, sequences, steps),
     **Senders** (the connected sending-account roster), and
@@ -223,6 +229,7 @@ paths:
         the container's table/campaign links and inherits its uploaded
         documents; a legacy workspace id keeps the old semantics.
       operationId: createAgentAndRun
+      deprecated: true
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -279,6 +286,7 @@ paths:
       tags: [Agents]
       summary: List agents (cursor-paginated; ?search=)
       operationId: listAgents
+      deprecated: true
       x-mint:
         href: /agents/reference/list-agents
       parameters:
@@ -312,6 +320,7 @@ paths:
       tags: [Agents]
       summary: Get an agent
       operationId: getAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/get-agent
       responses:
@@ -334,6 +343,7 @@ paths:
         and any legacy auto-created workspace that still has other
         active agents are never auto-deleted.
       operationId: archiveAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/archive-agent
       responses:
@@ -386,6 +396,7 @@ paths:
         background. Use this to answer a `needs_input` question; the
         agent picks up from the prior conversation.
       operationId: sendRun
+      deprecated: true
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -417,6 +428,7 @@ paths:
       tags: [Runs]
       summary: List runs for an agent (cursor-paginated)
       operationId: listRuns
+      deprecated: true
       x-mint:
         href: /agents/reference/list-runs
       parameters:
@@ -454,6 +466,7 @@ paths:
         terminates. This is the primary read path; every call after
         `POST /agents` polls this endpoint until `status !== "running"`.
       operationId: getRun
+      deprecated: true
       parameters:
         - in: query
           name: include
@@ -511,6 +524,7 @@ paths:
         agent's scope is rarely more than a handful of tables, so
         the endpoint does not paginate.
       operationId: listAgentTables
+      deprecated: true
       x-mint:
         href: /agents/reference/list-agent-tables
       parameters:
@@ -572,6 +586,7 @@ paths:
         For programmatic row reads, use
         [`GET /api/v2/tables/{tableId}/rows`](https://origami.chat/reading-data).
       operationId: getTable
+      deprecated: true
       parameters:
         - in: query
           name: include
@@ -619,6 +634,7 @@ paths:
         just-cancelled one if there was one, otherwise the agent's
         most recent terminal run.
       operationId: cancelActiveRun
+      deprecated: true
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -808,6 +824,7 @@ paths:
       tags: [Workspace]
       summary: List workspace-scoped documents (cursor-paginated)
       operationId: listWorkspaceDocuments
+      deprecated: true
       x-mint:
         href: /agents/reference/list-documents
       parameters:
@@ -844,6 +861,7 @@ paths:
         errored. Replaces the deprecated
         `POST /workspaces/{workspaceId}/uploads` spelling (same contract).
       operationId: uploadWorkspaceDocuments
+      deprecated: true
       x-mint:
         href: /agents/reference/upload-documents
       parameters:
@@ -891,6 +909,7 @@ paths:
       tags: [Workspace]
       summary: Read a document (metadata + content)
       operationId: getWorkspaceDocument
+      deprecated: true
       x-mint:
         href: /agents/reference/get-document
       responses:
@@ -909,6 +928,7 @@ paths:
         collision with another live document at the derived path →
         `409 DOCUMENT_PATH_TAKEN`.
       operationId: renameWorkspaceDocument
+      deprecated: true
       x-mint:
         href: /agents/reference/rename-document
       requestBody:
@@ -932,6 +952,7 @@ paths:
       tags: [Workspace]
       summary: Delete a workspace document
       operationId: deleteWorkspaceDocument
+      deprecated: true
       x-mint:
         href: /agents/reference/delete-document
       responses:
@@ -976,6 +997,7 @@ paths:
       tags: [Workspace]
       summary: List tables (cursor-paginated; ?workspaceId=)
       operationId: listTables
+      deprecated: true
       x-mint:
         href: /agents/reference/list-tables
       parameters:
@@ -1011,6 +1033,7 @@ paths:
       tags: [Workspace]
       summary: List a table's columns
       operationId: listColumns
+      deprecated: true
       x-mint:
         href: /agents/reference/list-columns
       responses:
@@ -1045,6 +1068,7 @@ paths:
         streams CSV. Supports slug-keyed `filters` / `sort` JSON and cursor
         pagination; this endpoint allows `limit` up to **200**.
       operationId: listRows
+      deprecated: true
       x-mint:
         href: /agents/reference/list-rows
       parameters:
@@ -1130,6 +1154,7 @@ paths:
         may be less than `requested` (an idempotent re-delete returns
         `deleted: 0`). Deleted rows are recoverable via the app's restore flow.
       operationId: deleteRows
+      deprecated: true
       x-mint:
         href: /agents/reference/delete-rows
       requestBody:
@@ -1201,6 +1226,7 @@ paths:
         The response references the tracking object by id: it is an
         `enrichment_run` the caller polls via `GET /enrichment-runs/{runId}`.
       operationId: upsertRows
+      deprecated: true
       x-mint:
         href: /agents/reference/upsert-rows
       parameters:
@@ -1246,6 +1272,7 @@ paths:
         row cap: a CSV with more than **100** data rows is rejected with
         `413 TOO_MANY_ROWS` (split the file or page the JSON upsert).
       operationId: upsertRowsFromFile
+      deprecated: true
       x-mint:
         href: /agents/reference/upsert-rows-file
       parameters:
@@ -1312,6 +1339,7 @@ paths:
         recipient) or `POST /campaigns/{campaignId}/pause` (the whole
         campaign).
       operationId: cancelTableCells
+      deprecated: true
       x-mint:
         href: /agents/reference/cancel-table-cells
       parameters:
@@ -1342,6 +1370,7 @@ paths:
       tags: [Workspace]
       summary: Fetch one row
       operationId: getRow
+      deprecated: true
       x-mint:
         href: /agents/reference/get-row
       responses:
@@ -1360,6 +1389,7 @@ paths:
       tags: [Workspace]
       summary: Fetch one cell
       operationId: getCell
+      deprecated: true
       x-mint:
         href: /agents/reference/get-cell
       responses:
@@ -1374,6 +1404,7 @@ paths:
         column-over-row work (upserts, file ingests), newest first.
         Optional `?tableId=` filter. `GET /batches` is the deprecated alias.
       operationId: listEnrichmentRuns
+      deprecated: true
       x-mint:
         href: /agents/reference/list-enrichment-runs
       parameters:
@@ -1409,6 +1440,7 @@ paths:
         `upsert`-type runs, the per-row `outcomes[]` ledger plus
         `outcomeCounts`. `GET /batches/{batchId}` is the deprecated alias.
       operationId: getEnrichmentRun
+      deprecated: true
       x-mint:
         href: /agents/reference/get-enrichment-run
       responses:
@@ -1429,6 +1461,7 @@ paths:
         resolved org-scoped first; a missing or cross-org table returns
         `404 TABLE_NOT_FOUND` instead of an empty list.
       operationId: listTableEnrichmentRuns
+      deprecated: true
       x-mint:
         href: /agents/reference/list-table-enrichment-runs
       parameters:
@@ -1467,6 +1500,7 @@ paths:
         the fallback for a missed `table.run.completed` webhook. Purged
         (retention-expired) or foreign runs return `404`.
       operationId: getTableRun
+      deprecated: true
       x-mint:
         href: /agents/reference/get-table-run
       responses:
@@ -1534,6 +1568,7 @@ paths:
         `400 MISSING_SCOPE`). Optional `status` / `channel` / `recipient`
         filters compose with `cursor` / `limit`.
       operationId: listSequences
+      deprecated: true
       x-mint:
         href: /agents/reference/list-sequences
       parameters:
@@ -1590,6 +1625,7 @@ paths:
         first, so a missing or cross-org table returns 404 TABLE_NOT_FOUND
         instead of an empty list.
       operationId: listTableSequences
+      deprecated: true
       x-mint:
         href: /agents/reference/list-table-sequences
       parameters:
@@ -1673,6 +1709,7 @@ paths:
       tags: [Sequences]
       summary: Fetch a sequence with steps inline (provider internals redacted)
       operationId: getSequence
+      deprecated: true
       x-mint:
         href: /agents/reference/get-sequence
       responses:
@@ -1693,6 +1730,7 @@ paths:
         (`{ dryRun, sequenceId, status, force }`) with no writes. Replaces
         the deprecated `POST /sequences/{sequenceId}/delete` spelling.
       operationId: deleteSequenceRest
+      deprecated: true
       x-mint:
         href: /agents/reference/delete-sequence
       parameters:
@@ -1718,6 +1756,7 @@ paths:
         Branches: nothing-to-stop (fresh draft) / stopped / noop (already
         stopped). `?dryRun=true` reports the would-be effect with no writes.
       operationId: stopSequence
+      deprecated: true
       x-mint:
         href: /agents/reference/stop-sequence
       parameters:
@@ -1765,6 +1804,7 @@ paths:
         campaigns when the id names a session. Returns the canonical
         list envelope with `nextCursor: null` (one page, newest first).
       operationId: listWorkspaceCampaigns
+      deprecated: true
       x-mint:
         href: /agents/reference/list-workspace-campaigns
       responses:
@@ -1795,6 +1835,7 @@ paths:
         active campaign(s). Returns the canonical list envelope with
         `nextCursor: null`.
       operationId: listTableCampaigns
+      deprecated: true
       x-mint:
         href: /agents/reference/list-table-campaigns
       responses:
@@ -1830,6 +1871,7 @@ paths:
         pre-restructure `POST /tables/{tableId}/sequences` spelling is the
         legacy alias.
       operationId: createTableCampaign
+      deprecated: true
       x-mint:
         href: /agents/reference/create-campaign
       parameters:
@@ -1891,6 +1933,7 @@ paths:
       tags: [Campaigns]
       summary: Fetch a campaign
       operationId: getCampaignById
+      deprecated: true
       x-mint:
         href: /agents/reference/get-campaign
       responses:
@@ -1962,6 +2005,7 @@ paths:
         - With `?confirm=true` → deletes and returns
           `{ id, name, deleted: true }`.
       operationId: deleteCampaign
+      deprecated: true
       x-mint:
         href: /agents/reference/delete-campaign
       parameters:
@@ -2002,6 +2046,7 @@ paths:
         `GET /campaigns/{campaignId}/sequences` is a synonym (same shape);
         in the campaign model a person IS a sequence.
       operationId: listCampaignPeople
+      deprecated: true
       x-mint:
         href: /agents/reference/list-campaign-people
       parameters:
@@ -2045,6 +2090,7 @@ paths:
         `cursor` / `limit` params, same top-level `total`. In the campaign
         model a person IS a sequence.
       operationId: listCampaignSequences
+      deprecated: true
       x-mint:
         href: /agents/reference/list-campaign-sequences
       parameters:
@@ -2079,6 +2125,7 @@ paths:
       tags: [Campaigns]
       summary: Campaign performance stats
       operationId: getCampaignStats
+      deprecated: true
       x-mint:
         href: /agents/reference/get-campaign-stats
       responses:
@@ -2102,6 +2149,7 @@ paths:
         (poll `GET /agents/{agentId}/runs/{runId}`). The API never mutates a
         template or step directly.
       operationId: editCampaign
+      deprecated: true
       x-mint:
         href: /agents/reference/edit-campaign
       parameters:
@@ -2160,6 +2208,7 @@ paths:
         `?dryRun=true` returns `{ dryRun: true, campaignId, wouldLaunch: true }`
         with no writes.
       operationId: launchCampaign
+      deprecated: true
       x-mint:
         href: /agents/reference/launch-campaign
       parameters:
@@ -2195,6 +2244,7 @@ paths:
         refactor this was a batch "mark sequences ready" op; it is now the
         campaign-activate launch.) Same body, params, and result shape.
       operationId: sendCampaign
+      deprecated: true
       x-mint:
         href: /agents/reference/send-campaign
       parameters:
@@ -2226,10 +2276,12 @@ paths:
       summary: Pause a campaign (idempotent; ?dryRun=true)
       description: |
         Pauses the campaign. Idempotent; pausing an already-paused campaign
-        is a no-op. `?dryRun=true` returns
+        is a no-op. A campaign that never launched is refused with
+        409 `NOT_LAUNCHED` (a draft is held by not launching it). `?dryRun=true` returns
         `{ dryRun: true, campaignId, wouldPause }` with no writes; a real
         pause returns the transition result carrying the `pause` facts.
       operationId: pauseCampaignById
+      deprecated: true
       x-mint:
         href: /agents/reference/pause-campaign
       parameters:
@@ -2252,6 +2304,7 @@ paths:
                       campaignId: { type: string, format: uuid }
                       wouldPause: { type: boolean }
         '404': { description: CAMPAIGN_NOT_FOUND. }
+        '409': { description: 'NOT_LAUNCHED: the campaign never launched, so there is nothing to pause; nothing changed.' }
   /campaigns/{campaignId}/resume:
     parameters:
       - $ref: '#/components/parameters/CampaignId'
@@ -2265,6 +2318,7 @@ paths:
         `{ dryRun: true, campaignId, wouldResume }` with no writes; a real
         resume returns the transition result carrying the `resume` facts.
       operationId: resumeCampaignById
+      deprecated: true
       x-mint:
         href: /agents/reference/resume-campaign
       parameters:
@@ -2295,6 +2349,7 @@ paths:
       tags: [Scheduled agents]
       summary: List scheduled agents (cursor-paginated; filters workspaceId/enabled)
       operationId: listScheduledAgents
+      deprecated: true
       x-mint:
         href: /agents/reference/list-scheduled-agents
       parameters:
@@ -2333,6 +2388,7 @@ paths:
       summary: Create a scheduled agent (disabled by default)
       description: Requires name/prompt/cron. workspaceId is optional/nullable (a deprecated container anchor), not required. Invalid cron → INVALID_CRON / CRON_TOO_FREQUENT.
       operationId: createScheduledAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/create-scheduled-agent
       parameters:
@@ -2370,6 +2426,7 @@ paths:
       tags: [Scheduled agents]
       summary: Fetch a scheduled agent (+ planBlocked, last run)
       operationId: getScheduledAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/get-scheduled-agent
       responses:
@@ -2383,6 +2440,7 @@ paths:
       tags: [Scheduled agents]
       summary: Edit a scheduled agent
       operationId: patchScheduledAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/update-scheduled-agent
       requestBody:
@@ -2412,11 +2470,13 @@ paths:
       tags: [Scheduled agents]
       summary: Delete a scheduled agent (soft-delete)
       operationId: deleteScheduledAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/delete-scheduled-agent
       responses:
         '200': { description: '{ deleted: true }.' }
         '404': { description: SCHEDULED_AGENT_NOT_FOUND. }
+        '409': { description: 'CAMPAIGN_MANAGED: a campaign-linked scheduled agent cannot be deleted on its own; turn auto-refill off on the campaign instead.' }
   /scheduled-agents/{id}/enable:
     parameters:
       - $ref: '#/components/parameters/AgentId'
@@ -2424,6 +2484,7 @@ paths:
       tags: [Scheduled agents]
       summary: Enable a scheduled agent
       operationId: enableScheduledAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/enable-scheduled-agent
       parameters:
@@ -2442,6 +2503,7 @@ paths:
       tags: [Scheduled agents]
       summary: Disable a scheduled agent
       operationId: disableScheduledAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/disable-scheduled-agent
       parameters:
@@ -2460,6 +2522,7 @@ paths:
       tags: [Scheduled agents]
       summary: Manually trigger a run
       operationId: triggerScheduledAgent
+      deprecated: true
       x-mint:
         href: /agents/reference/trigger-scheduled-agent
       parameters:
@@ -2478,6 +2541,7 @@ paths:
         Run history newest-first, in the canonical list envelope. Not
         paginated; `nextCursor` is always `null`.
       operationId: listScheduledAgentRuns
+      deprecated: true
       x-mint:
         href: /agents/reference/list-scheduled-agent-runs
       responses:
@@ -2507,6 +2571,7 @@ paths:
         projects gets an empty page; "you have no projects" is not an
         error.
       operationId: listProjects
+      deprecated: true
       x-mint:
         href: /agents/reference/list-projects
       parameters:
@@ -2540,6 +2605,7 @@ paths:
         cannot create projects (nesting is one level deep) →
         `400 PARENT_REQUIRED`.
       operationId: createProject
+      deprecated: true
       x-mint:
         href: /agents/reference/create-project
       parameters:
@@ -2574,6 +2640,7 @@ paths:
       tags: [Projects]
       summary: Fetch a project
       operationId: getProject
+      deprecated: true
       x-mint:
         href: /agents/reference/get-project
       responses:
@@ -2593,6 +2660,7 @@ paths:
         it alone. `enforcement` controls whether that cap hard-blocks spend
         (`hard`) or only tracks it (`soft`); omitting it leaves it alone.
       operationId: updateProject
+      deprecated: true
       x-mint:
         href: /agents/reference/update-project
       requestBody:
@@ -2648,6 +2716,7 @@ paths:
         2. With `?confirm=true` → deletes and returns
            `{ id, name, deleted: true }`.
       operationId: deleteProject
+      deprecated: true
       x-mint:
         href: /agents/reference/delete-project
       parameters:
@@ -2688,8 +2757,11 @@ paths:
         in a workspace); `campaignId` narrows to the senders bound to that
         campaign's live sequences ("who does this campaign send from?").
         Defaults to every status except `disconnected` (removed accounts);
-        pass an explicit `status` list to override.
+        pass an explicit `status` list to override. The Origami Emails
+        sender is listed only while the org's plan can use it or one of its
+        campaigns has it as a sender.
       operationId: listSenders
+      deprecated: true
       x-mint:
         href: /agents/reference/list-senders
       parameters:
@@ -2726,6 +2798,7 @@ paths:
       tags: [Senders]
       summary: Get one sender by its stable id
       operationId: getSender
+      deprecated: true
       x-mint:
         href: /agents/reference/get-sender
       parameters:
@@ -2745,6 +2818,7 @@ paths:
       tags: [Account]
       summary: Org account overview (plan, capabilities, workspace usage)
       operationId: getAccount
+      deprecated: true
       x-mint:
         href: /agents/reference/get-account
       responses:
@@ -2758,6 +2832,7 @@ paths:
       tags: [Account]
       summary: Credit balance (supersedes v1 GET /credits)
       operationId: getAccountCredits
+      deprecated: true
       x-mint:
         href: /agents/reference/get-credits
       responses:
@@ -3588,12 +3663,12 @@ components:
         displayName:
           type: string
           nullable: true
-          description: Human name where known (from-name / LinkedIn profile name); falls back to the email address / slug.
+          description: Human name where known (from-name / LinkedIn profile name); falls back to the email address / slug. Always "Origami Emails" for the Origami Emails sender.
         email:
           type: string
           format: email
           nullable: true
-          description: Mailbox address. Null for LinkedIn senders.
+          description: Mailbox address. Null for LinkedIn senders. The Origami Emails sender sends from shared mailboxes, so its value is a placeholder ending in .invalid, never an address mail goes out from.
         linkedinSlug:
           type: string
           nullable: true
@@ -3605,10 +3680,10 @@ components:
           description: Full LinkedIn profile URL derived from the slug.
         source:
           type: string
-          description: 'Normalized provider: gmail | outlook | smtp | linkedin.'
+          description: 'Normalized provider: gmail | outlook | smtp | linkedin. The Origami Emails sender returns its raw provider, origami-email-pool.'
         origamiOrigin:
           type: boolean
-          description: True when Origami provisioned this account (done-for-you inboxes); false for accounts the user connected themselves.
+          description: True when Origami provisioned or runs this account (done-for-you inboxes, Origami Emails); false for accounts the user connected themselves.
         status:
           type: string
           description: active | needs_reauth | provisioning | reconnecting | error | disconnected.
@@ -3881,8 +3956,8 @@ components:
                 markers).
               - Tool calls are limited to the interactive widgets a
                 non-dev user actually sees: `ask-questions`,
-                `present-plan`, `contact-support`,
-                `suggest-document-write`. The code the agent ran
+                `present-plan`, `suggest-document-write`, and
+                `contact-support` (older transcripts only). The code the agent ran
                 (`execute-code`), the VFS reads (`list-dir`,
                 `read-file`, `grep`), and operational tools
                 (`flag-session`) are dropped along with their results.
@@ -4202,9 +4277,11 @@ components:
         leadCount:
           type: integer
           description: |
-            Non-deleted row count. v2 wire vocabulary speaks "leads"
-            instead of "rows"; the underlying DB column is still
-            `rows`.
+            Non-deleted row count. On a table that is a live source's
+            primary table, only the rows the source has bought count;
+            unbought rows are left out, as every read leaves them out.
+            v2 wire vocabulary speaks "leads" instead of "rows"; the
+            underlying DB column is still `rows`.
         columns:
           type: array
           items: { $ref: '#/components/schemas/TableColumn' }
