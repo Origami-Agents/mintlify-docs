@@ -4,7 +4,7 @@ description: "Map every v1 Data API route to its canonical v2 equivalent."
 ---
 
 `/api/v1` keeps working **unchanged** — its routes, response shapes, headers, and
-status codes are identical to before. There is **no time-boxed deprecation
+status codes are identical to before (a key limited to the Autopilot API, with Autopilot or Budget access but not Full API, gets `403 FORBIDDEN` on v1, as on v2 and v3). There is **no time-boxed deprecation
 window** and no `Sunset` or `Deprecation` headers in this release. v1 stays fully
 functional; a separate future change will introduce a dated sunset once consumers
 have migrated. This guide maps every v1 route to its canonical v2 equivalent so
