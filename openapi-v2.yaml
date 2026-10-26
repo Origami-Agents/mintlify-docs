@@ -167,7 +167,8 @@ info:
     missing or cross-org campaign id), `SEQUENCE_NOT_FOUND` (404:
     missing or cross-org sequence id), and `PROJECT_NOT_FOUND` (404:
     the `x-origami-project` header names an unknown, cross-parent, or
-    deleted project).
+    deleted project). `FORBIDDEN` (403): the API key is restricted and
+    cannot call this endpoint.
 
     ## Webhooks
 

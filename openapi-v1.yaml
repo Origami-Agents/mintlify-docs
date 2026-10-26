@@ -64,7 +64,7 @@ info:
     | `INVALID_FILTERS` | 400 | Malformed `filters` query parameter on `GET /tables/{tableId}/rows`. |
     | `INVALID_SORT` | 400 | Malformed `sort` query parameter on `GET /tables/{tableId}/rows`. |
     | `UNKNOWN_COLUMN` | 400 | A `filters` or `sort` entry references a column slug that does not exist. |
-    | `FORBIDDEN` | 403 | The provided `batchId` belongs to another organization. |
+    | `FORBIDDEN` | 403 | The API key is restricted and cannot call this endpoint, or the provided `batchId` belongs to another organization. |
     | `NOT_FOUND` | 404 | Table or batch not found. |
     | `RATE_LIMITED` | 429 | Too many requests: see rate-limit headers. |
     | `SUBSCRIPTION_REQUIRED` | 402 | Feature requires a plan upgrade. |

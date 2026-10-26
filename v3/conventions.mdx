@@ -130,7 +130,7 @@ to whoever owns the account rather than treating it as a hard failure.
 | `400 VALIDATION_ERROR` | Bad or unknown field. The `details` object says which. |
 | `401` | Missing, revoked, or malformed API key. |
 | `402 SUBSCRIPTION_REQUIRED` | Your plan doesn't include API access. |
-| `403` | A `member` key hit an admin-only operation. |
+| `403` | A `member` key hit an admin-only operation, or a key with Autopilot or Budget access but not Full API called a v3 endpoint. |
 | `404` | Wrong id, or the resource is in a different project. |
 | `409` | A state conflict — the `code` names it, e.g. `SEARCH_BUSY`, `NO_TEMPLATE`, `JOB_NOT_CANCELLABLE`. |
 | `429` | Rate limited or out of agent-run slots. Honor `Retry-After`. |
