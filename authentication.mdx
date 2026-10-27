@@ -4,7 +4,7 @@ description: "Create and manage API keys, scope requests to projects, and stay w
 ---
 
 The Origami API uses **API keys** for authentication. The same key works on v3,
-v2, and v1. Every key is **parent-wide**: it belongs to your parent (agency)
+v2, and v1 unless its access is limited (below). Every key is **parent-wide**: it belongs to your parent (agency)
 organization and can act on the parent or any of its projects.
 
 v3 keys also carry a **role**: `member` (default for new keys) or `admin`.
@@ -17,7 +17,9 @@ keys.
 1. Go to **Settings → Developers** in the Origami app
 2. Click **Create API key**
 3. Give it a descriptive name (e.g. "n8n integration", "CRM sync")
-4. Copy the key immediately — it's shown only once
+4. Choose its access. **Full API** (on by default) covers v1, v2 and v3.
+   **Autopilot** and **Budget** unlock the Autopilot API.
+5. Copy the key immediately — it's shown only once
 
 API keys follow the format:
 
@@ -40,6 +42,9 @@ curl https://origami.chat/api/v3/account \
 Every request must include this header. Requests without a valid key return
 `401 UNAUTHORIZED`. Organizations whose plan doesn't include API access return
 `402` with `code: "SUBSCRIPTION_REQUIRED"` — upgrade to a plan with API access.
+A key with Autopilot or Budget access but not **Full API** returns `403` with
+`code: "FORBIDDEN"` on v1, v2 and v3; turn on **Full API** for that key to
+call them.
 
 ## Projects and the x-origami-project header
 
