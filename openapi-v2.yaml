@@ -3,11 +3,12 @@ info:
   title: Origami Agent API
   version: "2.0"
   description: |
-    > **Deprecated for new integrations.** v2 keeps working (same keys, no
-    > removal date, no behavior changes), but new integrations should target
-    > the [v3 API](/v3/overview) (`/api/v3`): named typed
-    > operations, one shared Job for async work, hosted MCP + CLI. See
-    > the [v2 to v3 migration guide](/api-v2-to-v3-migration) for the 1:1 flow map.
+    > **Deprecated for new integrations.** New integrations should target
+    > the [v3 API](/v3/overview) (`/api/v3`): named typed operations, one
+    > shared Job for async work, hosted MCP + CLI. v2 keeps working for
+    > org-wide keys (no removal date); a key bound to one project gets `403`
+    > here and works only on v3's project-scoped operations. See the
+    > [v2 to v3 migration guide](/api-v2-to-v3-migration) for the 1:1 flow map.
 
     The Origami **v2 API** is the previous public API,
     organized into six segments: **Projects** (tenancy), **Agents**,
@@ -38,7 +39,8 @@ info:
     and prefer agent/table/campaign ids directly.
 
     **v1 is deprecated** (still fully functional, no removal date in
-    this release). New integrations should target v2 only. See the
+    this release); move v1 integrations off it (to v3, per the note
+    above). See the
     [v1 → v2 migration guide](./api-v1-to-v2-migration) for the route
     map; in short:
 
@@ -55,15 +57,17 @@ info:
 
     ## Tenancy: parent-wide keys & the `x-origami-project` header
 
-    Every API key is **parent-wide**: bound to the parent (agency)
+    Org-wide API keys are **parent-wide**: bound to the parent (agency)
     organization and able to act on the parent and any of its
-    **projects** (child orgs). Send the
+    **projects** (child orgs). A key bound to a single project works
+    only on v3's project-scoped paths; v2 refuses it with `403 FORBIDDEN`. Send the
     **`x-origami-project: <projectId>`** header on any v2 request to
     scope it to that project; all org-scoped resources (workspaces,
     tables, agents, outreach) then operate inside the project. Omit the
     header to act on the parent. Two exceptions: `/projects/*` manages
     the projects themselves from the parent (the header is ignored
-    there, never rejected), and `/account` is always parent-scoped.
+    there, never rejected), and `/account` / `/account/*` are always
+    parent-scoped (the header is ignored there too).
 
     The header fails closed: a malformed id →
     `400 VALIDATION_ERROR`; an unknown, cross-parent, or deleted
@@ -169,7 +173,7 @@ info:
     the `x-origami-project` header names an unknown, cross-parent, or
     deleted project). `FORBIDDEN` (403): the API key is limited to the
     Autopilot API (Autopilot or Budget access without Full API) and cannot
-    call v2.
+    call v2, or the key is project-bound and cannot call v2.
 
     ## Webhooks
 
@@ -1068,7 +1072,8 @@ paths:
         for the query's scope). `?cells=flat` returns the v1-style
         `{ slug: value }` rows (deliberately unstamped); `?format=csv`
         streams CSV. Supports slug-keyed `filters` / `sort` JSON and cursor
-        pagination; this endpoint allows `limit` up to **200**.
+        pagination; this endpoint allows `limit` up to **200**. On a
+        campaign's lead table, rows not yet delivered to you are omitted.
       operationId: listRows
       deprecated: true
       x-mint:
@@ -1371,6 +1376,9 @@ paths:
     get:
       tags: [Workspace]
       summary: Fetch one row
+      description: |
+        A row of a campaign's lead table that has not been delivered to you
+        yet returns `404 ROW_NOT_FOUND`.
       operationId: getRow
       deprecated: true
       x-mint:
@@ -1390,6 +1398,9 @@ paths:
     get:
       tags: [Workspace]
       summary: Fetch one cell
+      description: |
+        A cell of a campaign lead-table row that has not been delivered to
+        you yet returns `404 ROW_NOT_FOUND`.
       operationId: getCell
       deprecated: true
       x-mint:
@@ -2932,7 +2943,8 @@ components:
       required: false
       description: |
         Project (child org) selector, accepted on **every** v2 request
-        except `/projects/*` (where it is ignored; see the Tenancy
+        except `/projects/*`, `/account` and `/account/*` (where it is
+        ignored and the request stays parent-scoped; see the Tenancy
         section in the API description). Present → the request is
         scoped to that project under the API key's parent org; absent →
         the request acts on the parent. Malformed id →
@@ -3536,7 +3548,8 @@ components:
         A project is a **child org** under the parent (agency) org: a
         customer's own isolated set of workspaces/tables while credits
         and the concurrency pool stay shared at the parent. Select it on
-        any non-`/projects` request via the `x-origami-project` header.
+        any request other than `/projects/*`, `/account` and `/account/*`
+        (which stay parent-scoped) via the `x-origami-project` header.
       properties:
         object: { type: string, const: project }
         id: { type: string, format: uuid }
@@ -4280,8 +4293,10 @@ components:
           type: integer
           description: |
             Non-deleted row count. On a table that is a live source's
-            primary table, only the rows the source has bought count;
-            unbought rows are left out, as every read leaves them out.
+            primary table, only the rows the source has bought count. On a
+            campaign's lead table, only the rows delivered to you count.
+            Rows not yet bought or delivered are left out, as every read
+            leaves them out.
             v2 wire vocabulary speaks "leads" instead of "rows"; the
             underlying DB column is still `rows`.
         columns:

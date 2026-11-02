@@ -4,8 +4,10 @@ description: "Create and manage API keys, scope requests to projects, and stay w
 ---
 
 The Origami API uses **API keys** for authentication. The same key works on v3,
-v2, and v1 unless its access is limited (below). Every key is **parent-wide**: it belongs to your parent (agency)
-organization and can act on the parent or any of its projects.
+v2, and v1 unless its access is limited or it is bound to one project (below).
+An org-wide key is **parent-wide**: it belongs to your parent (agency)
+organization and can act on the parent or any of its projects. A key bound to
+one project works only on v3.
 
 v3 keys also carry a **role**: `member` (default for new keys) or `admin`.
 Existing keys were backfilled to `admin`. Admin-gated Account operations
@@ -44,12 +46,13 @@ Every request must include this header. Requests without a valid key return
 `402` with `code: "SUBSCRIPTION_REQUIRED"` — upgrade to a plan with API access.
 A key with Autopilot or Budget access but not **Full API** returns `403` with
 `code: "FORBIDDEN"` on v1, v2 and v3; turn on **Full API** for that key to
-call them.
+call them. A key bound to one project returns `403` with `code: "FORBIDDEN"` on
+v1 and v2. Use v3 for that key.
 
 ## Projects and the x-origami-project header
 
-Because keys are parent-wide, you choose which org a request acts on with the
-`x-origami-project` header:
+Because org-wide keys are parent-wide, you choose which org a request acts on
+with the `x-origami-project` header:
 
 - **Omit it** to act on the parent org.
 - **Send `x-origami-project: <project_id>`** to scope the request to that
@@ -66,7 +69,7 @@ exclusion lists. It is ignored by project management, org reads, senders,
 domains, mailboxes, webhooks, and API-key routes.
 
 On v2 two surfaces ignore it: `/projects/*` always manages projects from the
-parent, and `/account` is always parent-scoped.
+parent, and `/account` and `/account/*` are always parent-scoped.
 
 The header fails closed. A malformed id returns `400 VALIDATION_ERROR`; an
 unknown, cross-parent, or deleted project returns `404 PROJECT_NOT_FOUND`. The

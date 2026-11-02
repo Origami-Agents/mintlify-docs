@@ -24,6 +24,10 @@ Rows come back in the standard list envelope, plus a top-level `total` (the
 filtered row count for the whole query, across all pages). Each row is a typed
 object keyed by column slug.
 
+On a campaign's lead table, the list returns only the rows delivered to you, and
+`total` counts only those rows. Reading a row or cell that has not been
+delivered returns `404 ROW_NOT_FOUND`.
+
 ```json
 {
   "object": "list",
@@ -106,6 +110,9 @@ By default the API applies the table's saved filters and sort order. Set
 curl "https://origami.chat/api/v2/tables/TABLE_ID/rows?defaults=false" \
   -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
+
+`defaults=false` only drops the saved view. On a campaign's lead table you still
+get only the rows delivered to you.
 
 ## CSV export
 
