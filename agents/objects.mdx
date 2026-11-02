@@ -75,8 +75,9 @@ parent org itself) contains **workspaces**; a workspace holds **tables**,
 
 ## Tenancy: parent org and projects
 
-Every API key is **parent-wide** — it belongs to your parent (agency)
-organization and can act on the parent or any of its projects.
+An org-wide API key is **parent-wide** — it belongs to your parent (agency)
+organization and can act on the parent or any of its projects. A key bound to
+one project works only on v3; v2 returns `403 FORBIDDEN` for it.
 
 <ResponseField name="Project" type="object">
   A **child org** under your parent — a customer's isolated set of workspaces
@@ -102,8 +103,8 @@ organization and can act on the parent or any of its projects.
 </ResponseField>
 
 To act inside a project, send the `x-origami-project: <projectId>` header on any
-request. Omit it to act on the parent. The `/projects/*` and `/account`
-endpoints ignore the header. See [authentication](/authentication#projects-and-the-x-origami-project-header)
+request. Omit it to act on the parent. The `/projects/*`, `/account`, and
+`/account/*` endpoints ignore the header. See [authentication](/authentication#projects-and-the-x-origami-project-header)
 for details.
 
 ## Agents and runs

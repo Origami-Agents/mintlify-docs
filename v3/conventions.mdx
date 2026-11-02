@@ -130,15 +130,17 @@ to whoever owns the account rather than treating it as a hard failure.
 | `400 VALIDATION_ERROR` | Bad or unknown field. The `details` object says which. |
 | `401` | Missing, revoked, or malformed API key. |
 | `402 SUBSCRIPTION_REQUIRED` | Your plan doesn't include API access. |
-| `403` | A `member` key hit an admin-only operation, or a key with Autopilot or Budget access but not Full API called a v3 endpoint. |
+| `403` | A `member` key hit an admin-only operation, a key with Autopilot or Budget access but not Full API called a v3 endpoint, or a key bound to one project called an operation outside that project. |
 | `404` | Wrong id, or the resource is in a different project. |
 | `409` | A state conflict — the `code` names it, e.g. `SEARCH_BUSY`, `NO_TEMPLATE`, `JOB_NOT_CANCELLABLE`. |
 | `429` | Rate limited or out of agent-run slots. Honor `Retry-After`. |
 
 ## Scoping to a project
 
-Keys are parent-wide. Send `x-origami-project: <project_id>` to act inside a
-child project instead of the parent:
+Keys are parent-wide unless created with a `project_id`
+([`POST /account/keys`](/v3/reference/account-keys-create)). Send
+`x-origami-project: <project_id>` to act inside a child project instead of the
+parent:
 
 ```bash
 curl https://origami.chat/api/v3/leads/lists \
@@ -150,6 +152,11 @@ The header applies to Leads, Send, Jobs, and — within Account — chats and
 exclusion lists. It is ignored by project management, org reads, senders,
 domains, mailboxes, webhooks, and API-key routes, which are always
 parent-scoped.
+
+A key bound to one project always acts inside that project, with or without the
+header. Sending a different project id returns `404 PROJECT_NOT_FOUND`. The
+parent-scoped operations above return `403 FORBIDDEN` for that key, and so do
+v1 and v2.
 
 ## Rate limits
 
