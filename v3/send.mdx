@@ -237,6 +237,58 @@ curl -X POST "https://origami.chat/api/v3/send/campaigns/$CAMPAIGN_ID/approvals/
   -H "Content-Type: application/json" -d '{}'
 ```
 
+### Replying in a thread
+
+To answer someone in their existing thread, call
+[`POST /send/sequences/{sequence_id}/messages`](/v3/reference/send-sequences-messages-create).
+It sends one plain-text message from the mailbox or LinkedIn account that owns
+the thread. The message shows in the in-app thread and reads back through
+`GET /send/replies?from=self`.
+
+```bash
+curl -X POST "https://origami.chat/api/v3/send/sequences/$SEQUENCE_ID/messages" \
+  -H "Authorization: Bearer $ORIGAMI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "email", "body": "Thanks Dana, Tuesday at 2pm works for us."}'
+```
+
+```json
+{
+  "object": "sequence_message",
+  "sequence_id": "6f1c2a9e-4b7d-4e2a-9c1f-2d8e5a7b3c10",
+  "channel": "email",
+  "reply_id": "b2e4f6a8-1c3d-4e5f-8a9b-0c1d2e3f4a5b"
+}
+```
+
+The call is synchronous: a `200` means the provider accepted the message.
+
+- **Pacing.** It follows the account's campaign pacing: the same send window,
+  message cooldown, and daily message cap. On LinkedIn, that cap counts every
+  message the account sends, including campaign DMs and Auto-reply. Connection
+  request limits are untouched.
+- **Not ready yet.** When the account can't send, nothing is sent or stored.
+  You get `409 SENDER_NOT_READY` with `details.next_send_at`, `details.reason`
+  (`send_window`, `cooldown`, or `daily_cap`), and a `Retry-After` header.
+  Retry the same request at `next_send_at`. A `null` `next_send_at` means no
+  opening was found in the next 8 days, so check the account's settings.
+- **Automation.** The person's sequence keeps running. Pass
+  `"stop_sequence": true` to pause them the way a manual reply does.
+- **Replies only.** It returns `409 NO_THREAD` when nothing was sent on that
+  channel yet. It never sends a first email or opens a new LinkedIn chat.
+
+```json
+{
+  "error": "This account can send its next message at 2026-11-06T15:00:00.000Z.",
+  "code": "SENDER_NOT_READY",
+  "details": { "next_send_at": "2026-11-06T15:00:00.000Z", "reason": "cooldown" }
+}
+```
+
+Other refusals are `409 DO_NOT_CONTACT`, `409 HAND_REPLY_FOUND`,
+`409 ACCOUNT_RECONNECT_REQUIRED`, `409 SENDER_UNAVAILABLE`,
+`409 SUBSCRIPTION_REQUIRED`, and `502 SEND_FAILED`.
+
 ### Stopping things
 
 | Scope | Call | Effect |

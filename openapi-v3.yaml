@@ -8459,6 +8459,93 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /send/sequences/{sequence_id}/messages:
+    post:
+      x-mint:
+        href: /v3/reference/send-sequences-messages-create
+        metadata:
+          title: "Reply in a thread"
+          sidebarTitle: "Reply in a thread"
+          description: "Send one message into a sequence's existing email or LinkedIn thread, paced like a campaign send (refused with next_send_at when the account cannot send yet)"
+      operationId: send.sequences.messages.create
+      summary: Send one message into a sequence's existing email or LinkedIn thread,
+        paced like a campaign send (refused with next_send_at when the account
+        cannot send yet)
+      tags:
+        - send
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                channel:
+                  type: string
+                  enum:
+                    - email
+                    - linkedin
+                body:
+                  type: string
+                  minLength: 1
+                stop_sequence:
+                  type: boolean
+              required:
+                - channel
+                - body
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (NO_THREAD, SENDER_NOT_READY, SENDER_UNAVAILABLE,
+            ACCOUNT_RECONNECT_REQUIRED, HAND_REPLY_FOUND, DO_NOT_CONTACT,
+            SUBSCRIPTION_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The provider refused or failed the request (SEND_FAILED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:

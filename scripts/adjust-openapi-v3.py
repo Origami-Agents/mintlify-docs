@@ -200,6 +200,7 @@ TITLES = {
     "send.campaigns.approvals.list": "List messages awaiting approval",
     "send.campaigns.approvals.approve": "Approve messages",
     "send.replies.list": "List replies",
+    "send.sequences.messages.create": "Reply in a thread",
 }
 
 
