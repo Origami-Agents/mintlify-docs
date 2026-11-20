@@ -19,8 +19,8 @@ terminal states are reported here, not as HTTP errors.
 | `running` | Work is in progress. | Keep polling; honor the `Retry-After` header. |
 | `completed` | The agent finished cleanly. | Read `response`. |
 | `needs_input` | The agent asked a question before it could continue. | Answer with a follow-up run (see [Pending questions](#pending-questions)). |
-| `incomplete` | The step finished but a tool call could not be parsed, so the loop ended early. | Recoverable — send a follow-up run on the same agent. |
-| `step_cap_hit` | The run reached your plan's step limit. | Send a follow-up run to continue, or upgrade for a higher cap. |
+| `incomplete` | The agent stopped while still calling tools, short of your plan's step limit (a tool call it could not finish), so the work wasn't done. | Recoverable — send a follow-up run on the same agent. |
+| `step_cap_hit` | The run reached your plan's step limit while still working. | Send a follow-up run to continue, or upgrade for a higher cap. |
 | `cancelled` | You cancelled the run. | Whatever the agent built so far is kept. |
 | `errored` | The run failed. | `response.text` is `null`; retry or contact support. |
 | `timed_out` | The run exceeded the wall-clock ceiling. | `response.text` is `null`; send a follow-up run. |
