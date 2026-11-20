@@ -3063,7 +3063,8 @@ components:
           description: |
             Table ids for the agent to work on. Each is linked to the
             agent's session and named to the agent, so the run works on
-            those tables rather than building new ones. With a legacy
+            those tables rather than building new ones. A table that
+            fails to link is left out of the run. With a legacy
             workspace `workspaceId`, every id must belong to that
             workspace; with a session container or no `workspaceId`, any
             org-owned table qualifies.
@@ -3927,7 +3928,7 @@ components:
         focusTableIds:
           type: array
           items: { type: string, format: uuid }
-          description: Echoed verbatim from the request; the run linked these tables and worked on them.
+          description: Echoed verbatim from the request; the run works on the ones it could link.
     RunResponse:
       type: object
       required: [text, actions, tables, transcript, transcriptTruncated]
