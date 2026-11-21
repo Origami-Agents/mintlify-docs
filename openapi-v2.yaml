@@ -148,13 +148,13 @@ info:
     does not change which model runs; `request.model` reports the model
     the run used.
 
-    | Plan | Default model | Accepted models | internal maxSteps |
-    | --- | --- | --- | --- |
-    | `starter` | `origami-lite` | `origami-lite` | 30 |
-    | `pro` | `origami-max` | `origami-lite`, `origami-max` | 50 |
-    | `scale` | `origami-max` | `origami-lite`, `origami-max` | 75 |
-    | `ultra` | `origami-max` | `origami-lite`, `origami-max` | 100 |
-    | `enterprise` | `origami-max` | `origami-lite`, `origami-max` | 200 |
+    | Plan | Accepted models | internal maxSteps |
+    | --- | --- | --- |
+    | `starter` | `origami-lite` | 30 |
+    | `pro` | `origami-lite`, `origami-max` | 50 |
+    | `scale` | `origami-lite`, `origami-max` | 75 |
+    | `ultra` | `origami-lite`, `origami-max` | 100 |
+    | `enterprise` | `origami-lite`, `origami-max` | 200 |
 
     ## Errors
 
