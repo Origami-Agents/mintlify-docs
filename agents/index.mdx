@@ -31,9 +31,9 @@ is no longer `running`, honoring the `Retry-After` header (15 seconds) while it 
 typically take 1–5 minutes. See the [run object](/agents/run-object) for the full response
 shape.
 
-Pick a model per run with the `model` field — `origami-lite` or `origami-max`. The default
-is the highest model your plan unlocks (`origami-lite` on starter, `origami-max` on pro and
-above).
+Every run uses Origami's built-in agent model. The `model` field is still accepted (and
+checked against your plan) but doesn't change which model runs; the run's `request.model`
+reports the model it used.
 
 ## Start here
 

@@ -140,16 +140,21 @@ info:
 
     Agent-loop knobs (`maxSteps`, `timeoutSeconds`) are **not** request
     parameters; they're internal config gated by the plan tier. The
-    chat agent's intrinsic 20-minute `AGENT_TIMEOUT_MS` is the wall-
-    clock ceiling.
+    plan's `maxSteps` caps every run; the agent's own wall-clock limit
+    is the time ceiling.
 
-    | Plan | Default model | Available models | internal maxSteps |
-    | --- | --- | --- | --- |
-    | `starter` | `origami-lite` | `origami-lite` | 30 |
-    | `pro` | `origami-max` | `origami-lite`, `origami-max` | 50 |
-    | `scale` | `origami-max` | `origami-lite`, `origami-max` | 75 |
-    | `ultra` | `origami-max` | `origami-lite`, `origami-max` | 100 |
-    | `enterprise` | `origami-max` | `origami-lite`, `origami-max` | 200 |
+    Every run uses Origami's built-in agent model. `model` is still
+    accepted and checked against the plan (the columns below), but it
+    does not change which model runs; `request.model` reports the model
+    the run used.
+
+    | Plan | Accepted models | internal maxSteps |
+    | --- | --- | --- |
+    | `starter` | `origami-lite` | 30 |
+    | `pro` | `origami-lite`, `origami-max` | 50 |
+    | `scale` | `origami-lite`, `origami-max` | 75 |
+    | `ultra` | `origami-lite`, `origami-max` | 100 |
+    | `enterprise` | `origami-lite`, `origami-max` | 200 |
 
     ## Errors
 
@@ -1073,7 +1078,8 @@ paths:
         `{ slug: value }` rows (deliberately unstamped); `?format=csv`
         streams CSV. Supports slug-keyed `filters` / `sort` JSON and cursor
         pagination; this endpoint allows `limit` up to **200**. On a
-        campaign's lead table, rows not yet delivered to you are omitted.
+        campaign's lead table, rows not yet delivered to you are omitted. A
+        value an add-on found that you have not bought reads as empty.
       operationId: listRows
       deprecated: true
       x-mint:
@@ -1378,7 +1384,8 @@ paths:
       summary: Fetch one row
       description: |
         A row of a campaign's lead table that has not been delivered to you
-        yet returns `404 ROW_NOT_FOUND`.
+        yet returns `404 ROW_NOT_FOUND`. A value an add-on found that you
+        have not bought reads as empty.
       operationId: getRow
       deprecated: true
       x-mint:
@@ -1400,7 +1407,8 @@ paths:
       summary: Fetch one cell
       description: |
         A cell of a campaign lead-table row that has not been delivered to
-        you yet returns `404 ROW_NOT_FOUND`.
+        you yet returns `404 ROW_NOT_FOUND`. A value an add-on found that you
+        have not bought reads as empty.
       operationId: getCell
       deprecated: true
       x-mint:
@@ -1966,8 +1974,10 @@ paths:
 
         Turning refill **on** on an active campaign arms the daily sourcing
         task and clears a prior Origami auto-stop. It clears a billing pause
-        (out of credits / spend limit) too, but funding is what resumes
-        sourcing: an unfunded account re-pauses on the next run. Turning it
+        (out of credits, a declined card, or a used-up project budget) too,
+        but sourcing resumes only once the account can pay: an unfunded
+        account, or a project whose budget is still used up, re-pauses on the
+        next run. Turning it
         **off** unarms the task. The intent flag survives pause and draft;
         the task only runs while the campaign is `active`.
 
@@ -2243,6 +2253,7 @@ paths:
                       dryRun: { type: boolean, const: true }
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
+        '403': { description: "PLAN_LIMIT_REACHED: the plan's number of the account's own campaigns is already running (campaigns Autopilot created do not count), so nothing was launched; `details` names the limit, the plan and the plan that lifts it, plus `campaign_names` for the running campaigns." }
         '404': { description: CAMPAIGN_NOT_FOUND. }
         '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
   /campaigns/{campaignId}/send:
@@ -2279,6 +2290,7 @@ paths:
                       dryRun: { type: boolean, const: true }
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
+        '403': { description: "PLAN_LIMIT_REACHED: the plan's number of the account's own campaigns is already running (campaigns Autopilot created do not count), so nothing was launched; `details` names the limit, the plan and the plan that lifts it, plus `campaign_names` for the running campaigns." }
         '404': { description: CAMPAIGN_NOT_FOUND. }
         '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
   /campaigns/{campaignId}/pause:
@@ -2353,6 +2365,7 @@ paths:
                       dryRun: { type: boolean, const: true }
                       campaignId: { type: string, format: uuid }
                       wouldResume: { type: boolean }
+        '403': { description: "PLAN_LIMIT_REACHED: the plan's number of the account's own campaigns is already running (campaigns Autopilot created do not count), so nothing was resumed; `details` names the limit, the plan and the plan that lifts it, plus `campaign_names` for the running campaigns." }
         '404': { description: CAMPAIGN_NOT_FOUND. }
         '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
 
@@ -2616,7 +2629,8 @@ paths:
         `monthlyCredits` is the optional per-project budget cap in
         credits; `null` or omitted means uncapped. A child org's key
         cannot create projects (nesting is one level deep) →
-        `400 PARENT_REQUIRED`.
+        `400 PARENT_REQUIRED`. An account whose plan limits its
+        projects and has none left → `403 PLAN_LIMIT_REACHED`.
       operationId: createProject
       deprecated: true
       x-mint:
@@ -2646,6 +2660,8 @@ paths:
               schema: { $ref: '#/components/schemas/Project' }
         '400':
           description: "VALIDATION_ERROR: bad body; or PARENT_REQUIRED: a child org's key cannot create projects."
+        '403':
+          description: "PLAN_LIMIT_REACHED: the account's plan includes no more projects; `details` names the limit, the plan and the plan that lifts it."
   /projects/{projectId}:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -3045,10 +3061,13 @@ components:
           maxItems: 50
           default: []
           description: |
-            Table ids to focus the agent on. With a legacy workspace
-            `workspaceId`, every id must belong to that workspace; with
-            a session container or no `workspaceId`, any org-owned
-            table qualifies (it is linked to the agent's session).
+            Table ids for the agent to work on. Each is linked to the
+            agent's session and named to the agent, so the run works on
+            those tables rather than building new ones. A table that
+            fails to link is left out of the run. With a legacy
+            workspace `workspaceId`, every id must belong to that
+            workspace; with a session container or no `workspaceId`, any
+            org-owned table qualifies.
         attachments:
           type: array
           maxItems: 20
@@ -3068,14 +3087,12 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id. Plan-aware default: highest model unlocked
-            on the caller's plan (`origami-lite` for `starter`,
-            `origami-max` for `pro`+). Resolved server-side to an
-            internal chat-agent model; the response's `request.model`
-            echoes the public id (`origami-lite` or `origami-max`),
-            never an internal name. Legacy aliases `origami-fast` and
-            `origami-mid` are still accepted and normalized to
-            `origami-lite`.
+            Accepted for compatibility and checked against the plan
+            (`origami-max` needs `pro`+), but it does not change the
+            model the run uses: every run uses Origami's built-in agent
+            model, and the run's `request.model` reports that model,
+            not this value. Legacy aliases `origami-fast` and
+            `origami-mid` are still accepted.
     UploadedRunAttachment:
       oneOf:
         - type: object
@@ -3099,6 +3116,7 @@ components:
           items: { type: string, format: uuid }
           maxItems: 50
           default: []
+          description: See CreateAgentRequest.focusTableIds.
         attachments:
           type: array
           maxItems: 20
@@ -3108,6 +3126,7 @@ components:
         model:
           type: string
           enum: [origami-lite, origami-max]
+          description: See CreateAgentRequest.model. Does not change the model the run uses.
     Workspace:
       type: object
       required: [object, id, name, createdByApi, url, createdAt]
@@ -3849,11 +3868,12 @@ components:
         means the run completed cleanly but the agent's last
         assistant message included an `ask-questions` tool call;
         answer by sending a follow-up run on the same agent.
-        `incomplete` means the model finished the step but the AI
-        SDK could not parse a tool call it tried to emit (or it hit
-        the output-token cap mid-tool-call), so the multi-step loop
-        ended without the work being done; recoverable by sending
-        a follow-up run on the same agent. Deploy restarts are
+        `incomplete` means the model stopped while still calling
+        tools, short of the plan's step limit (a tool call it could
+        not emit, or the output-token cap mid-call), so the work was
+        not done; recoverable by sending a follow-up run on the same
+        agent. `step_cap_hit` means the run reached the plan's step
+        limit while still working. Deploy restarts are
         auto-followed server-side, so callers never observe a
         `superseded` value.
     RunSummary:
@@ -3874,9 +3894,9 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id the run actually executed on. When the run
-            has no assistant message yet (still admitting), falls back
-            to the plan default.
+            Public model id the run actually executed on, whatever the
+            request passed: `origami-max` for every run on Origami's
+            built-in agent model, including one still admitting.
         steps: { $ref: '#/components/schemas/RunSteps' }
         startedAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
@@ -3885,9 +3905,9 @@ components:
       required: [completed, max]
       description: |
         Agent step progress. `completed` is the number of multi-step
-        loop iterations the agent has actually executed; `max` is the
-        plan-determined hard cap. Once `completed === max`, the run's
-        `status` becomes `step_cap_hit`.
+        loop iterations recorded for the run; `max` is the
+        plan-determined hard cap the run stops at. A run that reaches
+        it while still working ends with `status: step_cap_hit`.
       properties:
         completed: { type: integer, minimum: 0 }
         max: { type: integer, minimum: 1 }
@@ -3900,15 +3920,15 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id: `origami-lite` or `origami-max`. Echoes
-            the caller's request (after legacy-alias normalization)
-            or the plan default when the request omitted `model`.
-            Internal chat-agent ids (e.g. `origami-lobotomized`) are
-            never surfaced here.
+            Public model id the run actually executed on (`origami-max`
+            for every run on Origami's built-in agent model), not the
+            `model` the caller passed, which does not change the model.
+            Internal ids (e.g. `origami-lobotomized`) are never
+            surfaced here.
         focusTableIds:
           type: array
           items: { type: string, format: uuid }
-          description: Echoed verbatim from the request.
+          description: Echoed verbatim from the request; the run works on the ones it could link.
     RunResponse:
       type: object
       required: [text, actions, tables, transcript, transcriptTruncated]
