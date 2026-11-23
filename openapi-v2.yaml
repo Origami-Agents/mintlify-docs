@@ -4132,10 +4132,15 @@ components:
           items: { type: string }
           description: |
             Answers the agent proposed, in the order it listed them.
-            For `single-choice` these are the agent's options; for
-            `confirm` it is the single-entry array `["Confirm"]`. This
-            is NOT a hard menu; the caller may always reply with any
-            free-text via the follow-up run (see `freeformOption`).
+            For `single-choice` these are the agent's options. For
+            `confirm` it is `["Confirm"]`, or, when the question gates an
+            act on the user's go-ahead, the single button's own words
+            (for example `["Approve and send"]`); sending those words back
+            is the same as pressing that button. This is NOT a hard menu;
+            the caller may always reply with any free-text via the
+            follow-up run (see `freeformOption`), and a go-ahead given in
+            other words counts too, since the act quotes the reply that was
+            sent.
             The field is here so a host LLM can bias its follow-up
             `prompt` toward what the agent expected.
         freeformOption:
