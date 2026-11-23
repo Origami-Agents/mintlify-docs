@@ -10,8 +10,8 @@ info:
   version: "3.0"
   description: |
     The Origami **v3 API** is the current public surface: named, typed
-    operations in three sections (**Account**, **Leads**, **Send**) plus
-    one shared **Job** resource for all async work. The same catalog
+    operations in five sections (**Account**, **Leads**, **Send**,
+    **Contacts**, and read-only **Content**) plus one shared **Job** resource for all async work. The same catalog
     drives HTTP (`https://origami.chat/api/v3`), the hosted MCP server
     (`https://origami.chat/mcp`), and the `origami` CLI.
 
@@ -53,6 +53,9 @@ tags:
     description: Lists, columns, rows, searches, enrichment
   - name: send
     description: "Campaigns: the linear send recipe"
+  - name: contacts
+    description: "People and companies across every campaign: stages, stage history,
+      notes, merges"
 paths:
   /jobs:
     get:
@@ -580,6 +583,13 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Refused: the account's plan allows no more (PLAN_LIMIT_REACHED);
+            details.limit says which, handoff is the upgrade"
           content:
             application/json:
               schema:
@@ -1201,6 +1211,20 @@ paths:
                   type: object
                   additionalProperties:
                     type: string
+                output_schema:
+                  type: object
+                  additionalProperties: {}
+                  description: "A JSON Schema object (\"type\": \"object\" at the top) the run's
+                    result must match. The run finishes only once it has
+                    submitted a value that matches, and the Job's result.output
+                    carries it."
+                model:
+                  type: string
+                  enum:
+                    - origami-lite
+                    - origami-max
+                  description: "How hard the agent thinks: origami-lite (the default) or
+                    origami-max, where the plan allows it."
               required:
                 - prompt
       responses:
@@ -1501,7 +1525,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Conflict (ORIGAMI_EMAILS_MANAGED)
+          description: Conflict (ORIGAMI_EMAILS_MANAGED, LINKEDIN_POOL_MANAGED)
           content:
             application/json:
               schema:
@@ -2431,6 +2455,121 @@ paths:
                 $ref: "#/components/schemas/Error"
         "429":
           description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /account/sender-invites:
+    get:
+      x-mint:
+        href: /v3/reference/account-sender-invites-list
+        metadata:
+          title: "Sender invites list"
+          sidebarTitle: "Sender invites list"
+          description: "The teammates invited to connect their accounts, and where each invitation stands per channel"
+      operationId: account.sender_invites.list
+      summary: The teammates invited to connect their accounts, and where each
+        invitation stands per channel
+      tags:
+        - account
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      x-mint:
+        href: /v3/reference/account-sender-invites-create
+        metadata:
+          title: "Sender invites create"
+          sidebarTitle: "Sender invites create"
+          description: "Email a teammate a link to connect their mailbox or LinkedIn (sends an email from Origami; an address already invited gets the new channels and keeps its link)"
+      operationId: account.sender_invites.create
+      summary: Email a teammate a link to connect their mailbox or LinkedIn (sends an
+        email from Origami; an address already invited gets the new channels and
+        keeps its link)
+      tags:
+        - account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                  format: email
+                channels:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - linkedin
+                      - email
+                  minItems: 1
+                  maxItems: 2
+              required:
+                - email
+                - channels
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires an admin API key; or the account's plan allows no more
+            (PLAN_LIMIT_REACHED); details.limit says which, handoff is the
+            upgrade
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited; or the account's 24-hour allowance of new invitations
+            is used up (INVITE_LIMIT_REACHED), details.limit and
+            details.window_hours say what it is
           content:
             application/json:
               schema:
@@ -3568,6 +3707,576 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /account/knowledge:
+    get:
+      x-mint:
+        href: /v3/reference/account-knowledge-get
+        metadata:
+          title: "Knowledge get"
+          sidebarTitle: "Knowledge get"
+          description: "The knowledge base at a glance \u2014 its version, every document with what it is for and how it changes, and on a structured org each kind of entry or document with its fields and count"
+      operationId: account.knowledge.get
+      summary: "The knowledge base at a glance \u2014 its version, every document with what it is for and how it changes, and on a structured org each kind of entry or document with its fields and count"
+      tags:
+        - account
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /account/knowledge/document:
+    get:
+      x-mint:
+        href: /v3/reference/account-knowledge-document-get
+        metadata:
+          title: "Knowledge document get"
+          sidebarTitle: "Knowledge document get"
+          description: "One document's markdown by path, with what it is for and whether it can be written. On v3 a document's .json path returns its fields and version"
+      operationId: account.knowledge.document.get
+      summary: One document's markdown by path, with what it is for and whether it can
+        be written. On v3 a document's .json path returns its fields and version
+      tags:
+        - account
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 300
+            description: The document's path, as the overview lists it, e.g.
+              knowledge/message-writing.md
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      x-mint:
+        href: /v3/reference/account-knowledge-document-set
+        metadata:
+          title: "Knowledge document set"
+          sidebarTitle: "Knowledge document set"
+          description: "Create or replace a document's markdown by path. Rendered documents on a structured org are refused with where the change goes"
+      operationId: account.knowledge.document.set
+      summary: Create or replace a document's markdown by path. Rendered documents on
+        a structured org are refused with where the change goes
+      tags:
+        - account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  maxLength: 300
+                  description: The document's path, as the overview lists it, e.g.
+                    knowledge/message-writing.md
+                content:
+                  type: string
+                  maxLength: 200000
+                purpose:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: What the document is for. Agents read it to decide when to open the
+                    document
+              required:
+                - path
+                - content
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (KNOWLEDGE_READ_ONLY)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      x-mint:
+        href: /v3/reference/account-knowledge-document-delete
+        metadata:
+          title: "Knowledge document delete"
+          sidebarTitle: "Knowledge document delete"
+          description: "Delete a document by path. The built-in documents cannot be deleted"
+      operationId: account.knowledge.document.delete
+      summary: Delete a document by path. The built-in documents cannot be deleted
+      tags:
+        - account
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 300
+            description: The document's path, as the overview lists it, e.g.
+              knowledge/message-writing.md
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (KNOWLEDGE_READ_ONLY)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /account/knowledge/entries:
+    get:
+      x-mint:
+        href: /v3/reference/account-knowledge-entries-list
+        metadata:
+          title: "Knowledge entries list"
+          sidebarTitle: "Knowledge entries list"
+          description: "A structured org's active entries (v2) or documents (v3) with slug, body and fields; filter by kind (a v2 kind or a v3 document type)"
+      operationId: account.knowledge.entries.list
+      summary: A structured org's active entries (v2) or documents (v3) with slug,
+        body and fields; filter by kind (a v2 kind or a v3 document type)
+      tags:
+        - account
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - company
+              - icp
+              - messaging
+              - offer
+              - constraint
+              - resource
+              - products
+              - pains
+              - icps
+              - offers
+              - resources
+              - preferences
+              - autoReply
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (KNOWLEDGE_NOT_STRUCTURED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /account/knowledge/changes:
+    post:
+      x-mint:
+        href: /v3/reference/account-knowledge-changes-create
+        metadata:
+          title: "Knowledge changes create"
+          sidebarTitle: "Knowledge changes create"
+          description: "Change a structured org's knowledge, all or nothing \u2014 on v2 add, update or retire entries with one memory saying why; on v3 one edit, create or archive of one document, recorded in its history. Applies to plays from now on; running plays keep their copy"
+      operationId: account.knowledge.changes.create
+      summary: "Change a structured org's knowledge, all or nothing \u2014 on v2 add, update or retire entries with one memory saying why; on v3 one edit, create or archive of one document, recorded in its history. Applies to plays from now on; running plays keep their copy"
+      tags:
+        - account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 60
+                  description: What changed, in a few words; it names the memory
+                summary:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: One sentence on what changed and why; on v3 it is the reason the
+                    document's history records
+                details:
+                  type: string
+                  maxLength: 3000
+                  description: Anything the summary leaves out
+                changes:
+                  type: array
+                  items:
+                    anyOf:
+                      - type: object
+                        properties:
+                          op:
+                            type: string
+                            enum:
+                              - add
+                          kind:
+                            type: string
+                            enum:
+                              - company
+                              - icp
+                              - messaging
+                              - offer
+                              - constraint
+                              - resource
+                          title:
+                            type: string
+                            minLength: 1
+                            maxLength: 80
+                          body:
+                            type: string
+                            default: ""
+                            description: The entry in markdown
+                          data:
+                            type: object
+                            additionalProperties: {}
+                            default: {}
+                            description: "Fields by kind: company: name, domain; icp: buyer, audience
+                              {titles [], companySizes [], companyTypes [],
+                              locations []}, primary; messaging: autoReply;
+                              offer: none; constraint: type, values [];
+                              resource: type, url, file {fileId, name,
+                              mediaType, sizeBytes}, text."
+                        required:
+                          - op
+                          - kind
+                          - title
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          op:
+                            type: string
+                            enum:
+                              - update
+                          kind:
+                            type: string
+                            enum:
+                              - company
+                              - icp
+                              - messaging
+                              - offer
+                              - constraint
+                              - resource
+                          slug:
+                            type: string
+                            minLength: 1
+                            description: The entry's slug, as entries.list returns it
+                          title:
+                            type: string
+                            minLength: 1
+                            maxLength: 80
+                          body:
+                            type: string
+                          data:
+                            type: object
+                            additionalProperties: {}
+                            description: "Only the fields that change; a list replaces the stored one whole,
+                              null removes a field. Fields by kind: company:
+                              name, domain; icp: buyer, audience {titles [],
+                              companySizes [], companyTypes [], locations []},
+                              primary; messaging: autoReply; offer: none;
+                              constraint: type, values []; resource: type, url,
+                              file {fileId, name, mediaType, sizeBytes}, text."
+                        required:
+                          - op
+                          - kind
+                          - slug
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          op:
+                            type: string
+                            enum:
+                              - retire
+                          kind:
+                            type: string
+                            enum:
+                              - company
+                              - icp
+                              - messaging
+                              - offer
+                              - constraint
+                              - resource
+                          slug:
+                            type: string
+                            minLength: 1
+                            description: The entry's slug, as entries.list returns it
+                          why:
+                            type: string
+                            minLength: 1
+                        required:
+                          - op
+                          - kind
+                          - slug
+                          - why
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          op:
+                            type: string
+                            enum:
+                              - edit
+                          document:
+                            type: string
+                            minLength: 1
+                            description: "The document's ref, as entries.list returns it: company,
+                              messaging, preferences, autoReply or
+                              <folder>/<slug>"
+                          set:
+                            type: object
+                            additionalProperties: {}
+                            description: "Field path to its new value: text, a choice, a whole list, or one
+                              extra (extras.<label>)"
+                          add:
+                            type: object
+                            additionalProperties: {}
+                            description: Field path to one list item, or an array of them, to add
+                          remove:
+                            type: object
+                            additionalProperties: {}
+                            description: Field path to one list item, or an array of them, to remove (an
+                              extra by its label)
+                          replace:
+                            type: object
+                            additionalProperties: {}
+                            description: Field path to { from, to }, or an array of them, for an item that
+                              became another
+                        required:
+                          - op
+                          - document
+                        additionalProperties: false
+                        description: "v3 only: change one document's fields by path, as its .json names
+                          them"
+                      - type: object
+                        properties:
+                          op:
+                            type: string
+                            enum:
+                              - create
+                          type:
+                            type: string
+                            enum:
+                              - company
+                              - products
+                              - pains
+                              - icps
+                              - offers
+                              - messaging
+                              - resources
+                              - preferences
+                              - autoReply
+                          fields:
+                            type: object
+                            additionalProperties: {}
+                        required:
+                          - op
+                          - type
+                          - fields
+                        additionalProperties: false
+                        description: "v3 only: a new product, pain, ICP, offer or resource with its
+                          fields"
+                      - type: object
+                        properties:
+                          op:
+                            type: string
+                            enum:
+                              - archive
+                          document:
+                            type: string
+                            minLength: 1
+                            description: "The document's ref, as entries.list returns it: company,
+                              messaging, preferences, autoReply or
+                              <folder>/<slug>"
+                        required:
+                          - op
+                          - document
+                        additionalProperties: false
+                        description: "v3 only: a document that no longer holds"
+                  minItems: 1
+                  maxItems: 50
+              required:
+                - title
+                - summary
+                - changes
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (KNOWLEDGE_NOT_STRUCTURED, KNOWLEDGE_CHANGE_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /leads/lists:
     get:
       x-mint:
@@ -3968,6 +4677,32 @@ paths:
                   type: object
                   additionalProperties:
                     type: string
+                output_schema:
+                  type: object
+                  additionalProperties: {}
+                  description: "A JSON Schema object (\"type\": \"object\" at the top) the run's
+                    result must match. The run finishes only once it has
+                    submitted a value that matches, and the Job's result.output
+                    carries it."
+                model:
+                  type: string
+                  enum:
+                    - origami-lite
+                    - origami-max
+                  description: "How hard the agent thinks: origami-lite (the default) or
+                    origami-max, where the plan allows it."
+                source:
+                  type: string
+                  enum:
+                    - linkedin_connections
+                    - former_customers
+                    - website_visitors
+                  description: "Draw the leads from one of the account's own warm sources instead
+                    of a market search: linkedin_connections (a connected
+                    sender's 1st-degree connections), former_customers (from the
+                    connected Stripe) or website_visitors (companies seen by the
+                    Origami snippet or connected PostHog). The brief then only
+                    narrows who to keep. Omit for an ordinary search."
               required:
                 - brief
       responses:
@@ -4214,6 +4949,20 @@ paths:
                   type: object
                   additionalProperties:
                     type: string
+                output_schema:
+                  type: object
+                  additionalProperties: {}
+                  description: "A JSON Schema object (\"type\": \"object\" at the top) the run's
+                    result must match. The run finishes only once it has
+                    submitted a value that matches, and the Job's result.output
+                    carries it."
+                model:
+                  type: string
+                  enum:
+                    - origami-lite
+                    - origami-max
+                  description: "How hard the agent thinks: origami-lite (the default) or
+                    origami-max, where the plan allows it."
               required:
                 - instructions
       responses:
@@ -5080,6 +5829,32 @@ paths:
                   type: object
                   additionalProperties:
                     type: string
+                output_schema:
+                  type: object
+                  additionalProperties: {}
+                  description: "A JSON Schema object (\"type\": \"object\" at the top) the run's
+                    result must match. The run finishes only once it has
+                    submitted a value that matches, and the Job's result.output
+                    carries it."
+                model:
+                  type: string
+                  enum:
+                    - origami-lite
+                    - origami-max
+                  description: "How hard the agent thinks: origami-lite (the default) or
+                    origami-max, where the plan allows it."
+                source:
+                  type: string
+                  enum:
+                    - linkedin_connections
+                    - former_customers
+                    - website_visitors
+                  description: "Draw the leads from one of the account's own warm sources instead
+                    of a market search: linkedin_connections (a connected
+                    sender's 1st-degree connections), former_customers (from the
+                    connected Stripe) or website_visitors (companies seen by the
+                    Origami snippet or connected PostHog). The brief then only
+                    narrows who to keep. Omit for an ordinary search."
               required:
                 - brief
       responses:
@@ -5534,6 +6309,20 @@ paths:
                   type: object
                   additionalProperties:
                     type: string
+                output_schema:
+                  type: object
+                  additionalProperties: {}
+                  description: "A JSON Schema object (\"type\": \"object\" at the top) the run's
+                    result must match. The run finishes only once it has
+                    submitted a value that matches, and the Job's result.output
+                    carries it."
+                model:
+                  type: string
+                  enum:
+                    - origami-lite
+                    - origami-max
+                  description: "How hard the agent thinks: origami-lite (the default) or
+                    origami-max, where the plan allows it."
               required:
                 - brief
       responses:
@@ -5622,6 +6411,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "403":
+          description: "Refused: the account's plan allows no more (PLAN_LIMIT_REACHED);
+            details.limit says which, handoff is the upgrade"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: Resource not found
           content:
@@ -5631,7 +6427,7 @@ paths:
         "409":
           description: Conflict (ACCOUNT_CONNECTION_REQUIRED, ACCOUNT_RECONNECT_REQUIRED,
             NO_STEPS, NO_PEOPLE, OUT_OF_LEADS, ALL_VARIANTS_PAUSED,
-            SUBSCRIPTION_REQUIRED)
+            SUBSCRIPTION_REQUIRED, SENDER_SETUP_REQUIRED)
           content:
             application/json:
               schema:
@@ -5737,6 +6533,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "403":
+          description: "Refused: the account's plan allows no more (PLAN_LIMIT_REACHED);
+            details.limit says which, handoff is the upgrade"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: Resource not found
           content:
@@ -5746,7 +6549,7 @@ paths:
         "409":
           description: Conflict (ACCOUNT_CONNECTION_REQUIRED, ACCOUNT_RECONNECT_REQUIRED,
             NO_STEPS, NO_PEOPLE, OUT_OF_LEADS, ALL_VARIANTS_PAUSED,
-            SUBSCRIPTION_REQUIRED)
+            SUBSCRIPTION_REQUIRED, SENDER_SETUP_REQUIRED)
           content:
             application/json:
               schema:
@@ -5855,8 +6658,13 @@ paths:
                   description: "Only settable before the campaign has template steps. Once it
                     does, the template's steps are the channel set: a matching
                     set is accepted as a no-op, a different set is 400
-                    VALIDATION_ERROR (change channels by rewriting the template
-                    via PUT /send/campaigns/:id/templates)"
+                    VALIDATION_ERROR (change channels through the templates:
+                    edit the steps of the shared template behind it with PATCH
+                    /send/templates/:template, which on a launched campaign
+                    saves a draft that reaches the campaign after POST
+                    /send/templates/:template/go-live and /apply; or attach one
+                    on other channels with POST
+                    /send/templates/:template/attach)"
                 send_window:
                   type: object
                   properties:
@@ -5914,6 +6722,9 @@ paths:
                   enum:
                     - use_other_sender
                     - skip_channel
+                  description: Deprecated and ignored. A channel the lead's sender has no account
+                    on is always sent by another sender in the campaign. Still
+                    accepted so existing calls keep working
       responses:
         "200":
           description: Success
@@ -6057,6 +6868,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "403":
+          description: Refused (FORBIDDEN); details.reason says why
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: Resource not found
           content:
@@ -6121,6 +6938,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Refused (FORBIDDEN); details.reason says why
           content:
             application/json:
               schema:
@@ -6499,6 +7322,28 @@ paths:
           schema:
             type: string
             minLength: 1
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - enrolled
+              - activity
+            description: "enrolled (default): the order people were added, oldest first.
+              activity: most recent activity first (a message sent, failed,
+              scheduled or cancelled, a reply, a stop). A cursor belongs to the
+              order that issued it."
+        - name: activity_since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+            description: Only people with activity at or after this ISO-8601 time, newest
+              first; the list ends where older activity begins. Implies
+              order=activity. To sync, pass the newest last_activity_at you have
+              already seen.
       responses:
         "200":
           description: Success
@@ -7285,798 +8130,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-  /send/campaigns/{campaign_id}/templates:
-    get:
-      x-mint:
-        href: /v3/reference/send-campaigns-templates-get
-        metadata:
-          title: "Get the template"
-          sidebarTitle: "Get the template"
-          description: "Read the campaign template (variant_key always present on reads)"
-      operationId: send.campaigns.templates.get
-      summary: Read the campaign template (variant_key always present on reads)
-      tags:
-        - send
-      parameters:
-        - name: campaign_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          description: Validation error (unknown fields are rejected)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: Conflict (see error codes)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-    put:
-      x-mint:
-        href: /v3/reference/send-campaigns-templates-put
-        metadata:
-          title: "Replace the template"
-          sidebarTitle: "Replace the template"
-          description: "Replace the whole template (existing variant keys kept, new ones minted)"
-      operationId: send.campaigns.templates.put
-      summary: Replace the whole template (existing variant keys kept, new ones minted)
-      tags:
-        - send
-      parameters:
-        - name: campaign_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                sequences:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      variant_key:
-                        type: string
-                        pattern: ^[a-z0-9][a-z0-9-]{0,39}$
-                      variant_name:
-                        type: string
-                        maxLength: 60
-                      description:
-                        type: string
-                        maxLength: 2000
-                      instructions:
-                        type: string
-                        maxLength: 4000
-                      paused:
-                        type: boolean
-                      steps:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            channel:
-                              type: string
-                              enum:
-                                - email
-                                - linkedin_message
-                                - linkedin_connect
-                                - linkedin_comment
-                                - linkedin_react
-                                - manual
-                            subject:
-                              type: string
-                              maxLength: 300
-                            body:
-                              type: string
-                              maxLength: 20000
-                            delay_days:
-                              type: integer
-                              minimum: 0
-                              maximum: 30
-                            personalized:
-                              type: array
-                              items:
-                                anyOf:
-                                  - type: string
-                                    minLength: 1
-                                  - type: object
-                                    properties:
-                                      text:
-                                        type: string
-                                        minLength: 1
-                                      name:
-                                        type: string
-                                        minLength: 1
-                                        maxLength: 80
-                                      instruction:
-                                        type: string
-                                        minLength: 1
-                                        maxLength: 1000
-                                    required:
-                                      - text
-                                    additionalProperties: false
-                              maxItems: 20
-                            subject_personalized:
-                              type: array
-                              items:
-                                anyOf:
-                                  - type: string
-                                    minLength: 1
-                                  - type: object
-                                    properties:
-                                      text:
-                                        type: string
-                                        minLength: 1
-                                      name:
-                                        type: string
-                                        minLength: 1
-                                        maxLength: 80
-                                      instruction:
-                                        type: string
-                                        minLength: 1
-                                        maxLength: 1000
-                                    required:
-                                      - text
-                                    additionalProperties: false
-                              maxItems: 20
-                            target_post:
-                              type: object
-                              properties:
-                                mode:
-                                  type: string
-                                  enum:
-                                    - latest
-                                    - alias
-                                    - writer_pick
-                                alias:
-                                  type: string
-                                  pattern: ^post_[1-9][0-9]*$
-                              required:
-                                - mode
-                              additionalProperties: false
-                            on_missing_post:
-                              type: string
-                              enum:
-                                - hold
-                                - skip
-                            reaction:
-                              type: string
-                              enum:
-                                - like
-                                - celebrate
-                                - support
-                                - love
-                                - insightful
-                                - funny
-                            reaction_mode:
-                              type: string
-                              enum:
-                                - fixed
-                                - match_post
-                            connection_wait_minutes:
-                              type: integer
-                              minimum: 1
-                              maximum: 43200
-                              nullable: true
-                          required:
-                            - channel
-                            - body
-                            - delay_days
-                          additionalProperties: false
-                        minItems: 1
-                        maxItems: 15
-                    required:
-                      - steps
-                    additionalProperties: false
-                  maxItems: 10
-                sign_off_phrase:
-                  type: string
-                  maxLength: 200
-                  nullable: true
-                max_resync_people:
-                  type: integer
-                  minimum: 0
-              required:
-                - sequences
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          description: Validation error (unknown fields are rejected)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: Conflict (TEMPLATE_SPANS_INVALID, RESYNC_QUOTE_EXCEEDED)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-    delete:
-      x-mint:
-        href: /v3/reference/send-campaigns-templates-clear
-        metadata:
-          title: "Clear the template"
-          sidebarTitle: "Clear the template"
-          description: "Clear the template to an empty sequences list."
-      operationId: send.campaigns.templates.clear
-      summary: "Clear the template to an empty sequences list."
-      tags:
-        - send
-      parameters:
-        - name: campaign_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: confirm
-          in: query
-          required: false
-          schema:
-            type: boolean
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          description: Validation error (unknown fields are rejected)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: Conflict (see error codes)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-  /send/campaigns/{campaign_id}/templates/sequences:
-    post:
-      x-mint:
-        href: /v3/reference/send-campaigns-templates-sequences-append
-        metadata:
-          title: "Add a variant"
-          sidebarTitle: "Add a variant"
-          description: "Append one template variant (fresh never-reused key)"
-      operationId: send.campaigns.templates.sequences.append
-      summary: Append one template variant (fresh never-reused key)
-      tags:
-        - send
-      parameters:
-        - name: campaign_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                variant_name:
-                  type: string
-                  maxLength: 60
-                description:
-                  type: string
-                  maxLength: 2000
-                instructions:
-                  type: string
-                  maxLength: 4000
-                paused:
-                  type: boolean
-                steps:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      channel:
-                        type: string
-                        enum:
-                          - email
-                          - linkedin_message
-                          - linkedin_connect
-                          - linkedin_comment
-                          - linkedin_react
-                          - manual
-                      subject:
-                        type: string
-                        maxLength: 300
-                      body:
-                        type: string
-                        maxLength: 20000
-                      delay_days:
-                        type: integer
-                        minimum: 0
-                        maximum: 30
-                      personalized:
-                        type: array
-                        items:
-                          anyOf:
-                            - type: string
-                              minLength: 1
-                            - type: object
-                              properties:
-                                text:
-                                  type: string
-                                  minLength: 1
-                                name:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 80
-                                instruction:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 1000
-                              required:
-                                - text
-                              additionalProperties: false
-                        maxItems: 20
-                      subject_personalized:
-                        type: array
-                        items:
-                          anyOf:
-                            - type: string
-                              minLength: 1
-                            - type: object
-                              properties:
-                                text:
-                                  type: string
-                                  minLength: 1
-                                name:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 80
-                                instruction:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 1000
-                              required:
-                                - text
-                              additionalProperties: false
-                        maxItems: 20
-                      target_post:
-                        type: object
-                        properties:
-                          mode:
-                            type: string
-                            enum:
-                              - latest
-                              - alias
-                              - writer_pick
-                          alias:
-                            type: string
-                            pattern: ^post_[1-9][0-9]*$
-                        required:
-                          - mode
-                        additionalProperties: false
-                      on_missing_post:
-                        type: string
-                        enum:
-                          - hold
-                          - skip
-                      reaction:
-                        type: string
-                        enum:
-                          - like
-                          - celebrate
-                          - support
-                          - love
-                          - insightful
-                          - funny
-                      reaction_mode:
-                        type: string
-                        enum:
-                          - fixed
-                          - match_post
-                      connection_wait_minutes:
-                        type: integer
-                        minimum: 1
-                        maximum: 43200
-                        nullable: true
-                    required:
-                      - channel
-                      - body
-                      - delay_days
-                    additionalProperties: false
-                  minItems: 1
-                  maxItems: 15
-                max_resync_people:
-                  type: integer
-                  minimum: 0
-              required:
-                - steps
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          description: Validation error (unknown fields are rejected)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: Conflict (TEMPLATE_SPANS_INVALID, RESYNC_QUOTE_EXCEEDED)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-  /send/campaigns/{campaign_id}/templates/sequences/{variant_key}:
-    patch:
-      x-mint:
-        href: /v3/reference/send-campaigns-templates-sequences-patch
-        metadata:
-          title: "Update a variant"
-          sidebarTitle: "Update a variant"
-          description: "Patch one variant's copy, instructions, or paused state"
-      operationId: send.campaigns.templates.sequences.patch
-      summary: Patch one variant's copy, instructions, or paused state
-      tags:
-        - send
-      parameters:
-        - name: campaign_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: variant_key
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 40
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                variant_name:
-                  type: string
-                  maxLength: 60
-                description:
-                  type: string
-                  maxLength: 2000
-                instructions:
-                  type: string
-                  maxLength: 4000
-                paused:
-                  type: boolean
-                steps:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      channel:
-                        type: string
-                        enum:
-                          - email
-                          - linkedin_message
-                          - linkedin_connect
-                          - linkedin_comment
-                          - linkedin_react
-                          - manual
-                      subject:
-                        type: string
-                        maxLength: 300
-                      body:
-                        type: string
-                        maxLength: 20000
-                      delay_days:
-                        type: integer
-                        minimum: 0
-                        maximum: 30
-                      personalized:
-                        type: array
-                        items:
-                          anyOf:
-                            - type: string
-                              minLength: 1
-                            - type: object
-                              properties:
-                                text:
-                                  type: string
-                                  minLength: 1
-                                name:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 80
-                                instruction:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 1000
-                              required:
-                                - text
-                              additionalProperties: false
-                        maxItems: 20
-                      subject_personalized:
-                        type: array
-                        items:
-                          anyOf:
-                            - type: string
-                              minLength: 1
-                            - type: object
-                              properties:
-                                text:
-                                  type: string
-                                  minLength: 1
-                                name:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 80
-                                instruction:
-                                  type: string
-                                  minLength: 1
-                                  maxLength: 1000
-                              required:
-                                - text
-                              additionalProperties: false
-                        maxItems: 20
-                      target_post:
-                        type: object
-                        properties:
-                          mode:
-                            type: string
-                            enum:
-                              - latest
-                              - alias
-                              - writer_pick
-                          alias:
-                            type: string
-                            pattern: ^post_[1-9][0-9]*$
-                        required:
-                          - mode
-                        additionalProperties: false
-                      on_missing_post:
-                        type: string
-                        enum:
-                          - hold
-                          - skip
-                      reaction:
-                        type: string
-                        enum:
-                          - like
-                          - celebrate
-                          - support
-                          - love
-                          - insightful
-                          - funny
-                      reaction_mode:
-                        type: string
-                        enum:
-                          - fixed
-                          - match_post
-                      connection_wait_minutes:
-                        type: integer
-                        minimum: 1
-                        maximum: 43200
-                        nullable: true
-                    required:
-                      - channel
-                      - body
-                      - delay_days
-                    additionalProperties: false
-                  minItems: 1
-                  maxItems: 15
-                max_resync_people:
-                  type: integer
-                  minimum: 0
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          description: Validation error (unknown fields are rejected)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: Conflict (TEMPLATE_SPANS_INVALID, RESYNC_QUOTE_EXCEEDED)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-    delete:
-      x-mint:
-        href: /v3/reference/send-campaigns-templates-sequences-delete
-        metadata:
-          title: "Delete a variant"
-          sidebarTitle: "Delete a variant"
-          description: "Delete one variant (its key is never reused)"
-      operationId: send.campaigns.templates.sequences.delete
-      summary: Delete one variant (its key is never reused)
-      tags:
-        - send
-      parameters:
-        - name: campaign_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: variant_key
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 40
-        - name: max_resync_people
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          description: Validation error (unknown fields are rejected)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Missing or invalid API key
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "404":
-          description: Resource not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: Conflict (RESYNC_QUOTE_EXCEEDED)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
   /send/campaigns/{campaign_id}/examples:
     post:
       x-mint:
@@ -8368,6 +8421,1710 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /send/templates:
+    get:
+      x-mint:
+        href: /v3/reference/send-templates-list
+        metadata:
+          title: "Templates list"
+          sidebarTitle: "Templates list"
+          description: "List live shared templates, newest first, each with its campaign templates"
+      operationId: send.templates.list
+      summary: List live shared templates, newest first, each with its campaign
+        templates
+      tags:
+        - send
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-create
+        metadata:
+          title: "Templates create"
+          sidebarTitle: "Templates create"
+          description: "Draft a new shared template from a description (async Job); it comes with one campaign template, attached to campaign_id when given (one per channel on a two-channel campaign, unless channels names one)"
+      operationId: send.templates.create
+      summary: Draft a new shared template from a description (async Job); it comes
+        with one campaign template, attached to campaign_id when given (one per
+        channel on a two-channel campaign, unless channels names one)
+      tags:
+        - send
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 8000
+                written_for:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                campaign_id:
+                  type: string
+                  format: uuid
+                channels:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - email
+                      - linkedin
+                  minItems: 1
+                  maxItems: 2
+                post_engagement:
+                  type: boolean
+                offer_approved:
+                  type: boolean
+                needs:
+                  type: object
+                  properties:
+                    fields:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                            minLength: 1
+                            maxLength: 80
+                          description:
+                            type: string
+                            maxLength: 500
+                          required:
+                            type: boolean
+                        required:
+                          - key
+                          - description
+                          - required
+                        additionalProperties: false
+                      maxItems: 30
+                  required:
+                    - fields
+                  additionalProperties: false
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+              required:
+                - name
+                - description
+                - written_for
+      responses:
+        "202":
+          description: Job admitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}:
+    get:
+      x-mint:
+        href: /v3/reference/send-templates-get
+        metadata:
+          title: "Templates get"
+          sidebarTitle: "Templates get"
+          description: "Read one template (shared or campaign) by slug or id, its draft included"
+      operationId: send.templates.get
+      summary: Read one template (shared or campaign) by slug or id, its draft included
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      x-mint:
+        href: /v3/reference/send-templates-patch
+        metadata:
+          title: "Templates patch"
+          sidebarTitle: "Templates patch"
+          description: "Edit a template \u2014 a shared template's steps, campaign spans, needs, written_for and sign-off; a campaign template's fills, new spans, needs and written_for. On a launched campaign it lands on the draft"
+      operationId: send.templates.patch
+      summary: "Edit a template \u2014 a shared template's steps, campaign spans, needs, written_for and sign-off; a campaign template's fills, new spans, needs and written_for. On a launched campaign it lands on the draft"
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expected_version:
+                  type: integer
+                  minimum: 1
+                expected_draft_saved_at:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  nullable: true
+                steps:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      channel:
+                        type: string
+                        enum:
+                          - email
+                          - linkedin_message
+                          - linkedin_voice_note
+                          - linkedin_connect
+                          - linkedin_comment
+                          - linkedin_react
+                          - manual
+                      subject:
+                        type: string
+                        maxLength: 300
+                      body:
+                        type: string
+                        maxLength: 20000
+                      delay_days:
+                        type: integer
+                        minimum: 0
+                        maximum: 30
+                      personalized:
+                        type: array
+                        items:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: object
+                              properties:
+                                text:
+                                  type: string
+                                  minLength: 1
+                                name:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                instruction:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 1000
+                                field:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                  nullable: true
+                              required:
+                                - text
+                              additionalProperties: false
+                        maxItems: 20
+                      subject_personalized:
+                        type: array
+                        items:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: object
+                              properties:
+                                text:
+                                  type: string
+                                  minLength: 1
+                                name:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                instruction:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 1000
+                                field:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                  nullable: true
+                              required:
+                                - text
+                              additionalProperties: false
+                        maxItems: 20
+                      target_post:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                            enum:
+                              - latest
+                              - alias
+                              - writer_pick
+                          alias:
+                            type: string
+                            pattern: ^post_[1-9][0-9]*$
+                        required:
+                          - mode
+                        additionalProperties: false
+                      on_missing_post:
+                        type: string
+                        enum:
+                          - hold
+                          - skip
+                      reaction:
+                        type: string
+                        enum:
+                          - like
+                          - celebrate
+                          - support
+                          - love
+                          - insightful
+                          - funny
+                      reaction_mode:
+                        type: string
+                        enum:
+                          - fixed
+                          - match_post
+                      connection_wait_minutes:
+                        type: integer
+                        minimum: 1
+                        maximum: 43200
+                        nullable: true
+                      voice_note:
+                        anyOf:
+                          - type: object
+                            properties:
+                              provider:
+                                type: string
+                                enum:
+                                  - elevenLabs
+                            required:
+                              - provider
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              provider:
+                                type: string
+                                enum:
+                                  - upload
+                              file_id:
+                                type: string
+                                format: uuid
+                              duration_ms:
+                                type: integer
+                                exclusiveMinimum: true
+                                minimum: 0
+                            required:
+                              - provider
+                              - file_id
+                              - duration_ms
+                            additionalProperties: false
+                    required:
+                      - channel
+                      - body
+                      - delay_days
+                    additionalProperties: false
+                  minItems: 1
+                  maxItems: 15
+                campaign_spans:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        pattern: ^c[1-9][0-9]*$
+                      label:
+                        type: string
+                        minLength: 1
+                        maxLength: 60
+                      description:
+                        type: string
+                        maxLength: 160
+                      step_index:
+                        type: integer
+                        minimum: 0
+                        maximum: 14
+                      field:
+                        type: string
+                        enum:
+                          - subject
+                          - body
+                      text:
+                        type: string
+                        minLength: 1
+                      occurrence:
+                        type: integer
+                        minimum: 0
+                    required:
+                      - id
+                      - label
+                      - step_index
+                      - field
+                      - text
+                      - occurrence
+                    additionalProperties: false
+                  maxItems: 60
+                sign_off_phrase:
+                  type: string
+                  maxLength: 200
+                  nullable: true
+                fills:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      text:
+                        type: string
+                        maxLength: 20000
+                      personalized:
+                        type: array
+                        items:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                            - type: object
+                              properties:
+                                text:
+                                  type: string
+                                  minLength: 1
+                                name:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                instruction:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 1000
+                                field:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 80
+                                  nullable: true
+                              required:
+                                - text
+                              additionalProperties: false
+                        maxItems: 20
+                    required:
+                      - text
+                    additionalProperties: false
+                    nullable: true
+                new_spans:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      step_index:
+                        type: integer
+                        minimum: 0
+                        maximum: 14
+                      field:
+                        type: string
+                        enum:
+                          - subject
+                          - body
+                      text:
+                        type: string
+                        minLength: 1
+                      occurrence:
+                        type: integer
+                        minimum: 0
+                      label:
+                        type: string
+                        minLength: 1
+                        maxLength: 60
+                      description:
+                        type: string
+                        maxLength: 160
+                      fill:
+                        type: object
+                        properties:
+                          text:
+                            type: string
+                            maxLength: 20000
+                          personalized:
+                            type: array
+                            items:
+                              anyOf:
+                                - type: string
+                                  minLength: 1
+                                - type: object
+                                  properties:
+                                    text:
+                                      type: string
+                                      minLength: 1
+                                    name:
+                                      type: string
+                                      minLength: 1
+                                      maxLength: 80
+                                    instruction:
+                                      type: string
+                                      minLength: 1
+                                      maxLength: 1000
+                                    field:
+                                      type: string
+                                      minLength: 1
+                                      maxLength: 80
+                                      nullable: true
+                                  required:
+                                    - text
+                                  additionalProperties: false
+                            maxItems: 20
+                        required:
+                          - text
+                        additionalProperties: false
+                    required:
+                      - step_index
+                      - field
+                      - text
+                      - label
+                      - fill
+                    additionalProperties: false
+                  maxItems: 20
+                needs:
+                  type: object
+                  properties:
+                    fields:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                            minLength: 1
+                            maxLength: 80
+                          description:
+                            type: string
+                            maxLength: 500
+                          required:
+                            type: boolean
+                        required:
+                          - key
+                          - description
+                          - required
+                        additionalProperties: false
+                      maxItems: 30
+                  required:
+                    - fields
+                  additionalProperties: false
+                written_for:
+                  type: string
+                  maxLength: 4000
+                  nullable: true
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Refused: the account's plan allows no more (PLAN_LIMIT_REACHED);
+            details.limit says which, handoff is the upgrade"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/campaign-templates:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-campaign-templates-create
+        metadata:
+          title: "Templates campaign templates create"
+          sidebarTitle: "Templates campaign templates create"
+          description: "Draft a campaign template of a shared template from a description of what changes (async Job), attached to campaign_id when given"
+      operationId: send.templates.campaign_templates.create
+      summary: Draft a campaign template of a shared template from a description of
+        what changes (async Job), attached to campaign_id when given
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 8000
+                campaign_id:
+                  type: string
+                  format: uuid
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+              required:
+                - name
+                - description
+      responses:
+        "202":
+          description: Job admitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/rename:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-rename
+        metadata:
+          title: "Templates rename"
+          sidebarTitle: "Templates rename"
+          description: "Rename a template (its slug never changes)"
+      operationId: send.templates.rename
+      summary: Rename a template (its slug never changes)
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+              required:
+                - name
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/rewrite:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-rewrite
+        metadata:
+          title: "Templates rewrite"
+          sidebarTitle: "Templates rewrite"
+          description: "Rewrite a template completely from a description (async Job) \u2014 the drafter on a shared template, the variant writer on a campaign template"
+      operationId: send.templates.rewrite
+      summary: "Rewrite a template completely from a description (async Job) \u2014 the drafter on a shared template, the variant writer on a campaign template"
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 8000
+                expected_version:
+                  type: integer
+                  minimum: 1
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+              required:
+                - description
+      responses:
+        "202":
+          description: Job admitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/duplicate:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-duplicate
+        metadata:
+          title: "Templates duplicate"
+          sidebarTitle: "Templates duplicate"
+          description: "Copy a template under a new name \u2014 same content and needs, not attached, no history"
+      operationId: send.templates.duplicate
+      summary: "Copy a template under a new name \u2014 same content and needs, not attached, no history"
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+              required:
+                - name
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/go-live:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-go-live
+        metadata:
+          title: "Templates go live"
+          sidebarTitle: "Templates go live"
+          description: "Put a template's draft live. Without confirm and the preview's confirmation_token it returns the confirmation preview \u2014 who the draft reaches and what rewriting their written messages would cost"
+      operationId: send.templates.go_live
+      summary: "Put a template's draft live. Without confirm and the preview's confirmation_token it returns the confirmation preview \u2014 who the draft reaches and what rewriting their written messages would cost"
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: confirm
+          in: query
+          required: false
+          schema:
+            type: boolean
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                confirmation_token:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Refused: the account's plan allows no more (PLAN_LIMIT_REACHED);
+            details.limit says which, handoff is the upgrade"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION, CONFIRMATION_STALE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/draft:
+    delete:
+      x-mint:
+        href: /v3/reference/send-templates-draft-discard
+        metadata:
+          title: "Templates draft discard"
+          sidebarTitle: "Templates draft discard"
+          description: "Discard a template's draft; the live copy stays as it is"
+      operationId: send.templates.draft.discard
+      summary: Discard a template's draft; the live copy stays as it is
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/apply:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-apply
+        metadata:
+          title: "Templates apply"
+          sidebarTitle: "Templates apply"
+          description: "Carry a shared template's live edits into these campaign templates. When one is on a launched campaign it needs confirm and the preview's confirmation_token; written messages are never rewritten here"
+      operationId: send.templates.apply
+      summary: Carry a shared template's live edits into these campaign templates.
+        When one is on a launched campaign it needs confirm and the preview's
+        confirmation_token; written messages are never rewritten here
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: confirm
+          in: query
+          required: false
+          schema:
+            type: boolean
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                campaign_templates:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 200
+                  minItems: 1
+                  maxItems: 200
+                confirmation_token:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+              required:
+                - campaign_templates
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Refused: the account's plan allows no more (PLAN_LIMIT_REACHED);
+            details.limit says which, handoff is the upgrade"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION, CONFIRMATION_STALE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/attach:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-attach
+        metadata:
+          title: "Templates attach"
+          sidebarTitle: "Templates attach"
+          description: "Attach a campaign template to a campaign \u2014 new people are dealt it (two or more on one channel are an A/B test)"
+      operationId: send.templates.attach
+      summary: "Attach a campaign template to a campaign \u2014 new people are dealt it (two or more on one channel are an A/B test)"
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                campaign_id:
+                  type: string
+                  format: uuid
+              required:
+                - campaign_id
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/detach:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-detach
+        metadata:
+          title: "Templates detach"
+          sidebarTitle: "Templates detach"
+          description: "Detach a campaign template \u2014 no new people are dealt it; people already on it keep it"
+      operationId: send.templates.detach
+      summary: "Detach a campaign template \u2014 no new people are dealt it; people already on it keep it"
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/promote:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-promote
+        metadata:
+          title: "Templates promote"
+          sidebarTitle: "Templates promote"
+          description: "Make a campaign template's filled-out copy a new shared template; it moves under it, keeping its campaign"
+      operationId: send.templates.promote
+      summary: Make a campaign template's filled-out copy a new shared template; it
+        moves under it, keeping its campaign
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+              required:
+                - name
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/archive:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-archive
+        metadata:
+          title: "Templates archive"
+          sidebarTitle: "Templates archive"
+          description: "Archive a template (never deleted). A campaign template must be detached first; a shared one archives its campaign templates. People on it keep sending unless stop_people"
+      operationId: send.templates.archive
+      summary: Archive a template (never deleted). A campaign template must be
+        detached first; a shared one archives its campaign templates. People on
+        it keep sending unless stop_people
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                stop_people:
+                  type: boolean
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/rewrite-written:
+    post:
+      x-mint:
+        href: /v3/reference/send-templates-rewrite-written
+        metadata:
+          title: "Templates rewrite written"
+          sidebarTitle: "Templates rewrite written"
+          description: "Rewrite the messages already written from older versions of a campaign template, for credits. Needs confirm and the preview's confirmation_token whenever anyone would be rewritten"
+      operationId: send.templates.rewrite_written
+      summary: Rewrite the messages already written from older versions of a campaign
+        template, for credits. Needs confirm and the preview's
+        confirmation_token whenever anyone would be rewritten
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: confirm
+          in: query
+          required: false
+          schema:
+            type: boolean
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                confirmation_token:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED, STALE_VERSION, CONFIRMATION_STALE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/versions:
+    get:
+      x-mint:
+        href: /v3/reference/send-templates-versions-list
+        metadata:
+          title: "Templates versions list"
+          sidebarTitle: "Templates versions list"
+          description: "A template's saved versions, newest first"
+      operationId: send.templates.versions.list
+      summary: A template's saved versions, newest first
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: before_version
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/templates/{template}/versions/{version}:
+    get:
+      x-mint:
+        href: /v3/reference/send-templates-versions-get
+        metadata:
+          title: "Templates versions get"
+          sidebarTitle: "Templates versions get"
+          description: "One saved version of a template \u2014 its copy, needs, written_for, spans or fills"
+      operationId: send.templates.versions.get
+      summary: "One saved version of a template \u2014 its copy, needs, written_for, spans or fills"
+      tags:
+        - send
+      parameters:
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TEMPLATE_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/campaigns/{campaign_id}/templates:
+    get:
+      x-mint:
+        href: /v3/reference/send-campaigns-templates-get
+        metadata:
+          title: "Get the template"
+          sidebarTitle: "Get the template"
+          description: "A campaign's campaign templates (attached first, then those only its people still use) and its channel plan"
+      operationId: send.campaigns.templates.get
+      summary: A campaign's campaign templates (attached first, then those only its
+        people still use) and its channel plan
+      tags:
+        - send
+      parameters:
+        - name: campaign_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /send/replies:
     get:
       x-mint:
@@ -8546,6 +10303,1937 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /send/replies/drafts/{ref}:
+    get:
+      x-mint:
+        href: /v3/reference/send-replies-drafts-get
+        metadata:
+          title: "Replies drafts get"
+          sidebarTitle: "Replies drafts get"
+          description: "Read the reply Origami drafted on a conversation \u2014 its body exactly as it would send, what it still needs, and what became of it once closed"
+      operationId: send.replies.drafts.get
+      summary: "Read the reply Origami drafted on a conversation \u2014 its body exactly as it would send, what it still needs, and what became of it once closed"
+      tags:
+        - send
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/replies/drafts/{ref}/regenerate:
+    post:
+      x-mint:
+        href: /v3/reference/send-replies-drafts-regenerate
+        metadata:
+          title: "Replies drafts regenerate"
+          sidebarTitle: "Replies drafts regenerate"
+          description: "Write the conversation's draft again for the lead's latest message, with optional feedback on how it should change (a reply already sent is refused)"
+      operationId: send.replies.drafts.regenerate
+      summary: Write the conversation's draft again for the lead's latest message,
+        with optional feedback on how it should change (a reply already sent is
+        refused)
+      tags:
+        - send
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                feedback:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (DRAFT_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/replies/drafts/{ref}/fill:
+    post:
+      x-mint:
+        href: /v3/reference/send-replies-drafts-fill
+        metadata:
+          title: "Replies drafts fill"
+          sidebarTitle: "Replies drafts fill"
+          description: "Answer the gaps an open draft is missing, by gap key (the keys a read lists under missing)"
+      operationId: send.replies.drafts.fill
+      summary: Answer the gaps an open draft is missing, by gap key (the keys a read
+        lists under missing)
+      tags:
+        - send
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                answers:
+                  type: object
+                  additionalProperties:
+                    type: string
+                    minLength: 1
+                    maxLength: 4000
+              required:
+                - answers
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (DRAFT_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/tags:
+    get:
+      x-mint:
+        href: /v3/reference/send-tags-list
+        metadata:
+          title: "Tags list"
+          sidebarTitle: "Tags list"
+          description: "The organization's Inbox tags (id, name, color)"
+      operationId: send.tags.list
+      summary: The organization's Inbox tags (id, name, color)
+      tags:
+        - send
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/sequences/{sequence_id}/tags:
+    get:
+      x-mint:
+        href: /v3/reference/send-sequences-tags-list
+        metadata:
+          title: "Sequences tags list"
+          sidebarTitle: "Sequences tags list"
+          description: "The Inbox tags on a person's conversation"
+      operationId: send.sequences.tags.list
+      summary: The Inbox tags on a person's conversation
+      tags:
+        - send
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      x-mint:
+        href: /v3/reference/send-sequences-tags-add
+        metadata:
+          title: "Sequences tags add"
+          sidebarTitle: "Sequences tags add"
+          description: "Put an existing Inbox tag on a person's conversation (a tag already there is left as it is); answers the conversation's tags"
+      operationId: send.sequences.tags.add
+      summary: Put an existing Inbox tag on a person's conversation (a tag already
+        there is left as it is); answers the conversation's tags
+      tags:
+        - send
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                tag_id:
+                  type: string
+                  format: uuid
+              required:
+                - tag_id
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (TAG_LIMIT_REACHED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/sequences/{sequence_id}/tags/{tag_id}:
+    delete:
+      x-mint:
+        href: /v3/reference/send-sequences-tags-remove
+        metadata:
+          title: "Sequences tags remove"
+          sidebarTitle: "Sequences tags remove"
+          description: "Take an Inbox tag off a person's conversation; answers the conversation's tags"
+      operationId: send.sequences.tags.remove
+      summary: Take an Inbox tag off a person's conversation; answers the
+        conversation's tags
+      tags:
+        - send
+      parameters:
+        - name: sequence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/meetings:
+    get:
+      x-mint:
+        href: /v3/reference/send-meetings-list
+        metadata:
+          title: "Meetings list"
+          sidebarTitle: "Meetings list"
+          description: "Page the meetings booked with people you reached out to, newest booking first (booked and cancelled; empty until a calendar is connected in the app)"
+      operationId: send.meetings.list
+      summary: Page the meetings booked with people you reached out to, newest booking
+        first (booked and cancelled; empty until a calendar is connected in the
+        app)
+      tags:
+        - send
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: campaign_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: sequence_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /send/recommended-campaigns:
+    get:
+      x-mint:
+        href: /v3/reference/send-recommended-campaigns-list
+        metadata:
+          title: "Recommended campaigns list"
+          sidebarTitle: "Recommended campaigns list"
+          description: "The campaigns Origami recommends for this account, top recommendation first, each with whether it is ready, what it still needs connected, and campaigns already made from it. Read-only \u2014 starting one is done in the app"
+      operationId: send.recommended_campaigns.list
+      summary: "The campaigns Origami recommends for this account, top recommendation first, each with whether it is ready, what it still needs connected, and campaigns already made from it. Read-only \u2014 starting one is done in the app"
+      tags:
+        - send
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /content/posts:
+    get:
+      x-mint:
+        href: /v3/reference/content-posts-list
+        metadata:
+          title: "Posts list"
+          sidebarTitle: "Posts list"
+          description: "Page the Content posts the account has saved, scheduled or published, most recently changed first (declined posts only with status=declined). Read-only"
+      operationId: content.posts.list
+      summary: Page the Content posts the account has saved, scheduled or published,
+        most recently changed first (declined posts only with status=declined).
+        Read-only
+      tags:
+        - content
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - draft
+              - scheduled
+              - posted
+              - declined
+        - name: platform
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - linkedin
+              - x
+              - instagram
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Refused (FORBIDDEN); details.reason says why
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /content/posts/{post_id}:
+    get:
+      x-mint:
+        href: /v3/reference/content-posts-get
+        metadata:
+          title: "Posts get"
+          sidebarTitle: "Posts get"
+          description: "Read one Content post by id, whatever its status. Read-only"
+      operationId: content.posts.get
+      summary: Read one Content post by id, whatever its status. Read-only
+      tags:
+        - content
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Refused (FORBIDDEN); details.reason says why
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /content/suggestions:
+    get:
+      x-mint:
+        href: /v3/reference/content-suggestions-list
+        metadata:
+          title: "Suggestions list"
+          sidebarTitle: "Suggestions list"
+          description: "Page the suggested Content posts waiting for review, oldest first. Read-only \u2014 reading one here does not mark it as seen and never asks for more to be written"
+      operationId: content.suggestions.list
+      summary: "Page the suggested Content posts waiting for review, oldest first. Read-only \u2014 reading one here does not mark it as seen and never asks for more to be written"
+      tags:
+        - content
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: platform
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - linkedin
+              - x
+              - instagram
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Refused (FORBIDDEN); details.reason says why
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (see error codes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/people:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-people-list
+        metadata:
+          title: "People list"
+          sidebarTitle: "People list"
+          description: "Page contacts, newest touch first, by search, stage, stage history, campaign, company, facts or research"
+      operationId: contacts.people.list
+      summary: Page contacts, newest touch first, by search, stage, stage history,
+        campaign, company, facts or research
+      tags:
+        - contacts
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 200
+            description: Substring search; at least 3 characters (a shorter one is a 400,
+              never an unfiltered list)
+        - name: research
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.full_name
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.title
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.headline
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.seniority
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.department
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.company
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.email
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.phone
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.linkedin
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.location
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.website
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: fact.email_status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: stage
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - new
+                - contacted
+                - replied
+                - interested
+                - meeting_booked
+                - meeting_held
+                - proposal_sent
+                - in_procurement
+                - customer
+                - closed_lost
+                - not_a_fit
+                - dnc
+            minItems: 1
+            maxItems: 12
+        - name: stage_changed_before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: stage_changed_after
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: ever_stage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - new
+              - contacted
+              - replied
+              - interested
+              - meeting_booked
+              - meeting_held
+              - proposal_sent
+              - in_procurement
+              - customer
+              - closed_lost
+              - not_a_fit
+              - dnc
+        - name: never_stage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - new
+              - contacted
+              - replied
+              - interested
+              - meeting_booked
+              - meeting_held
+              - proposal_sent
+              - in_procurement
+              - customer
+              - closed_lost
+              - not_a_fit
+              - dnc
+        - name: campaign_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: company_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/people/{contact_id}:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-people-get
+        metadata:
+          title: "People get"
+          sidebarTitle: "People get"
+          description: "Read one contact \u2014 details, stage, campaigns; include= adds the brief, facts or research"
+      operationId: contacts.people.get
+      summary: "Read one contact \u2014 details, stage, campaigns; include= adds the brief, facts or research"
+      tags:
+        - contacts
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: include
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - brief
+                - facts
+                - research
+            minItems: 1
+            maxItems: 3
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/people/{contact_id}/merge:
+    post:
+      x-mint:
+        href: /v3/reference/contacts-people-merge
+        metadata:
+          title: "People merge"
+          sidebarTitle: "People merge"
+          description: "Merge other contacts into this one (the same merge the app runs)"
+      operationId: contacts.people.merge
+      summary: Merge other contacts into this one (the same merge the app runs)
+      tags:
+        - contacts
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                from_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+                  maxItems: 20
+              required:
+                - from_ids
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE, MERGE_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/people/{contact_id}/stage:
+    post:
+      x-mint:
+        href: /v3/reference/contacts-people-stage-set
+        metadata:
+          title: "People stage set"
+          sidebarTitle: "People stage set"
+          description: "Set a contact's stage by hand, or `auto` to go back to automatic; `dnc` also adds them to the Never contact list, and only someone in the app can clear it"
+      operationId: contacts.people.stage.set
+      summary: Set a contact's stage by hand, or `auto` to go back to automatic; `dnc`
+        also adds them to the Never contact list, and only someone in the app
+        can clear it
+      tags:
+        - contacts
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                stage:
+                  anyOf:
+                    - type: string
+                      enum:
+                        - new
+                        - contacted
+                        - replied
+                        - interested
+                        - meeting_booked
+                        - meeting_held
+                        - proposal_sent
+                        - in_procurement
+                        - customer
+                        - closed_lost
+                        - not_a_fit
+                        - dnc
+                    - type: string
+                      enum:
+                        - auto
+                reason:
+                  type: string
+                  maxLength: 500
+                  minLength: 1
+                lost_reason:
+                  type: string
+                  enum:
+                    - price
+                    - timing
+                    - competitor
+                    - no_decision
+                    - other
+              required:
+                - stage
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE, STAGE_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/people/{contact_id}/stage-history:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-people-stage-history-list
+        metadata:
+          title: "People stage history list"
+          sidebarTitle: "People stage history list"
+          description: "Page a contact's stage changes, newest first"
+      operationId: contacts.people.stage_history.list
+      summary: Page a contact's stage changes, newest first
+      tags:
+        - contacts
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/people/{contact_id}/notes:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-people-notes-list
+        metadata:
+          title: "People notes list"
+          sidebarTitle: "People notes list"
+          description: "Page a contact's notes, newest first"
+      operationId: contacts.people.notes.list
+      summary: Page a contact's notes, newest first
+      tags:
+        - contacts
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      x-mint:
+        href: /v3/reference/contacts-people-notes-create
+        metadata:
+          title: "People notes create"
+          sidebarTitle: "People notes create"
+          description: "Add a note to a contact"
+      operationId: contacts.people.notes.create
+      summary: Add a note to a contact
+      tags:
+        - contacts
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+              required:
+                - body
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/companies:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-companies-list
+        metadata:
+          title: "Companies list"
+          sidebarTitle: "Companies list"
+          description: "Page companies, newest touch first, by search or stage"
+      operationId: contacts.companies.list
+      summary: Page companies, newest touch first, by search or stage
+      tags:
+        - contacts
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 200
+            description: Substring search; at least 3 characters (a shorter one is a 400,
+              never an unfiltered list)
+        - name: stage
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - new
+                - contacted
+                - replied
+                - interested
+                - meeting_booked
+                - meeting_held
+                - proposal_sent
+                - in_procurement
+                - customer
+                - closed_lost
+                - not_a_fit
+                - dnc
+            minItems: 1
+            maxItems: 12
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/companies/{company_id}:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-companies-get
+        metadata:
+          title: "Companies get"
+          sidebarTitle: "Companies get"
+          description: "Read one company \u2014 stage, campaigns and its first page of people; `people_next_cursor` pages the rest through `contacts.people.list` with `company_id`"
+      operationId: contacts.companies.get
+      summary: "Read one company \u2014 stage, campaigns and its first page of people; `people_next_cursor` pages the rest through `contacts.people.list` with `company_id`"
+      tags:
+        - contacts
+      parameters:
+        - name: company_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: people_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/companies/{company_id}/stage:
+    post:
+      x-mint:
+        href: /v3/reference/contacts-companies-stage-set
+        metadata:
+          title: "Companies stage set"
+          sidebarTitle: "Companies stage set"
+          description: "Set a company's stage by hand, or `auto` to go back to the roll-up; only someone in the app can clear `dnc`"
+      operationId: contacts.companies.stage.set
+      summary: Set a company's stage by hand, or `auto` to go back to the roll-up;
+        only someone in the app can clear `dnc`
+      tags:
+        - contacts
+      parameters:
+        - name: company_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                stage:
+                  anyOf:
+                    - type: string
+                      enum:
+                        - new
+                        - contacted
+                        - replied
+                        - interested
+                        - meeting_booked
+                        - meeting_held
+                        - proposal_sent
+                        - in_procurement
+                        - customer
+                        - closed_lost
+                        - not_a_fit
+                        - dnc
+                    - type: string
+                      enum:
+                        - auto
+                reason:
+                  type: string
+                  maxLength: 500
+                  minLength: 1
+                lost_reason:
+                  type: string
+                  enum:
+                    - price
+                    - timing
+                    - competitor
+                    - no_decision
+                    - other
+              required:
+                - stage
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE, STAGE_REFUSED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/companies/{company_id}/stage-history:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-companies-stage-history-list
+        metadata:
+          title: "Companies stage history list"
+          sidebarTitle: "Companies stage history list"
+          description: "Page a company's stage changes, newest first"
+      operationId: contacts.companies.stage_history.list
+      summary: Page a company's stage changes, newest first
+      tags:
+        - contacts
+      parameters:
+        - name: company_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /contacts/companies/{company_id}/notes:
+    get:
+      x-mint:
+        href: /v3/reference/contacts-companies-notes-list
+        metadata:
+          title: "Companies notes list"
+          sidebarTitle: "Companies notes list"
+          description: "Page a company's notes, newest first"
+      operationId: contacts.companies.notes.list
+      summary: Page a company's notes, newest first
+      tags:
+        - contacts
+      parameters:
+        - name: company_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      x-mint:
+        href: /v3/reference/contacts-companies-notes-create
+        metadata:
+          title: "Companies notes create"
+          sidebarTitle: "Companies notes create"
+          description: "Add a note to a company"
+      operationId: contacts.companies.notes.create
+      summary: Add a note to a company
+      tags:
+        - contacts
+      parameters:
+        - name: company_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 10000
+              required:
+                - body
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error (unknown fields are rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Conflict (CONTACTS_NOT_LIVE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -8654,6 +12342,8 @@ components:
         result:
           type: object
           nullable: true
+          description: The operation's result once terminal. An AGENT Job started with
+            output_schema carries the run's submitted value as result.output.
         credits:
           type: object
           nullable: true
@@ -8677,6 +12367,9 @@ components:
         needs_input:
           type: object
           nullable: true
+          description: "Set while status is needs_input: questions (an AGENT run asking
+            its caller; answer with jobs.input, which the run receives as its
+            next message) or a handoff (a human step outside the API)."
         chat_id:
           type: string
           nullable: true
@@ -8694,6 +12387,7 @@ components:
         - draft
         - scheduled
         - sending
+        - provider_pending
         - sent
         - accepted
         - failed

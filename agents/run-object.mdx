@@ -17,8 +17,9 @@ terminal states are reported here, not as HTTP errors.
 | Status | Meaning | What to do |
 |--------|---------|------------|
 | `running` | Work is in progress. | Keep polling; honor the `Retry-After` header. |
+| `waiting_for_input` | The agent asked you a question and is waiting for the answer. | Read `question`, then answer with a follow-up run (see [Questions](#questions)). The same run goes on. |
 | `completed` | The agent finished cleanly. | Read `response`. |
-| `needs_input` | The agent asked a question before it could continue. | Answer with a follow-up run (see [Pending questions](#pending-questions)). |
+| `needs_input` | The run finished with open questions in `todo.pendingQuestions[]`. | Answer with a follow-up run (see [Questions](#questions)). |
 | `incomplete` | The agent stopped while still calling tools, short of your plan's step limit (a tool call it could not finish), so the work wasn't done. | Recoverable — send a follow-up run on the same agent. |
 | `step_cap_hit` | The run reached your plan's step limit while still working. | Send a follow-up run to continue, or upgrade for a higher cap. |
 | `cancelled` | You cancelled the run. | Whatever the agent built so far is kept. |
@@ -27,6 +28,14 @@ terminal states are reported here, not as HTTP errors.
 
 The `Retry-After` header (currently 15 seconds) is present **only** while `status` is
 `running`. Its absence on a response is the signal to stop polling.
+
+## Typed output
+
+Pass `outputSchema` (a JSON Schema object with `"type": "object"` at the top) when you create
+the agent or send a run. The agent submits a value that matches it, and `response.output`
+carries it (`null` on a run without a schema). A schema run completes only once it has
+submitted a valid value; one that never does ends `errored`. Keywords the server can't
+enforce (`pattern`, `anyOf`, `$ref`) are refused with `400 VALIDATION_ERROR`.
 
 ## Response
 
@@ -88,10 +97,17 @@ curl "https://origami.chat/api/v2/agents/$AGENT_ID/runs/$RUN_ID?include=stats,tr
   -H "Authorization: Bearer $ORIGAMI_API_KEY"
 ```
 
-## Pending questions
+## Questions
 
-When the agent needs a decision before it can continue, the run finishes with
-`status: "needs_input"` and `todo.pendingQuestions[]` is populated. Surface the question to
+When the agent needs a decision before it can continue, the run stops and waits with
+`status: "waiting_for_input"`, and the run's `question` holds what it asked. Send the answer
+as a follow-up run on the same agent with
+[`POST /api/v2/agents/{id}/runs`](/agents/reference/send-run): the `prompt` is delivered to
+the waiting run, no new run is started, and the response is the same run, `running` again.
+A run waits at most 24 hours from its start, then ends `timed_out`. While the run is still
+`running` without a question, a follow-up answers `409 AGENT_BUSY`.
+
+A run can also finish with `status: "needs_input"` and `todo.pendingQuestions[]` populated. Surface the question to
 your user, then answer it by sending a follow-up run on the same agent with
 [`POST /api/v2/agents/{id}/runs`](/agents/reference/send-run) — any free-text `prompt` is
 accepted. `todo.nextActions[]` carries the agent's suggested next steps, each with a `label`

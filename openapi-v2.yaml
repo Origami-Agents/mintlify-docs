@@ -143,10 +143,10 @@ info:
     plan's `maxSteps` caps every run; the agent's own wall-clock limit
     is the time ceiling.
 
-    Every run uses Origami's built-in agent model. `model` is still
-    accepted and checked against the plan (the columns below), but it
-    does not change which model runs; `request.model` reports the model
-    the run used.
+    `model` picks how hard the agent thinks: `origami-lite` (the
+    default, and the cheaper) or `origami-max`, checked against the
+    plan (the columns below). `request.model` reports the level the
+    run used.
 
     | Plan | Accepted models | internal maxSteps |
     | --- | --- | --- |
@@ -166,7 +166,8 @@ info:
 
     Non-`completed` terminal *run* states (`timed_out`, `errored`,
     `cancelled`, `needs_input`, `step_cap_hit`) are surfaced on the
-    `Run` object's single `status` field, not as HTTP error codes.
+    `Run` object's single `status` field, not as HTTP error codes, and
+    so is `waiting_for_input`, a run asking its caller a question.
     Callers branch on the run object.
 
     Notable codes beyond the per-endpoint ones: `IDEMPOTENCY_ERROR`
@@ -406,6 +407,14 @@ paths:
         with the initial run object; agent work runs in the
         background. Use this to answer a `needs_input` question; the
         agent picks up from the prior conversation.
+
+        While the agent's last run is `waiting_for_input`, this answers
+        its question instead: `prompt` (at most 4,000 characters) is
+        delivered to that run as its next message, no new run is
+        admitted, and the response is that same run, `running` again.
+        Its other fields (`model`, `outputSchema`, `focusTableIds`,
+        `attachments`) are ignored. While that run is still `running`,
+        this answers `409 AGENT_BUSY`.
       operationId: sendRun
       deprecated: true
       parameters:
@@ -3086,13 +3095,26 @@ components:
         model:
           type: string
           enum: [origami-lite, origami-max]
+          default: origami-lite
           description: |
-            Accepted for compatibility and checked against the plan
-            (`origami-max` needs `pro`+), but it does not change the
-            model the run uses: every run uses Origami's built-in agent
-            model, and the run's `request.model` reports that model,
-            not this value. Legacy aliases `origami-fast` and
-            `origami-mid` are still accepted.
+            How hard the agent thinks for this run: `origami-lite` (the
+            default, and the cheaper) or `origami-max` (needs `pro`+;
+            `400 MODEL_NOT_AVAILABLE` otherwise). The run's
+            `request.model` reports the level it ran at. Legacy aliases
+            `origami-fast` and `origami-mid` are accepted as
+            `origami-lite`.
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: |
+            A JSON Schema object (`"type": "object"` at the top) the
+            run's result must match. The agent submits a value that
+            matches it, and the run's `response.output` carries it. A
+            run with a schema completes only once it has submitted a
+            valid value; one that never does ends `errored`. Objects are
+            closed (`additionalProperties: false`) when stored; keywords
+            the server cannot enforce (`pattern`, `anyOf`, `$ref`) are
+            refused with `400 VALIDATION_ERROR`.
     UploadedRunAttachment:
       oneOf:
         - type: object
@@ -3126,7 +3148,12 @@ components:
         model:
           type: string
           enum: [origami-lite, origami-max]
-          description: See CreateAgentRequest.model. Does not change the model the run uses.
+          default: origami-lite
+          description: See CreateAgentRequest.model.
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: See CreateAgentRequest.outputSchema.
     Workspace:
       type: object
       required: [object, id, name, createdByApi, url, createdAt]
@@ -3862,9 +3889,14 @@ components:
                 - $ref: '#/components/schemas/RunSummary'
     RunStatus:
       type: string
-      enum: [running, completed, needs_input, step_cap_hit, incomplete, cancelled, errored, timed_out]
+      enum: [running, waiting_for_input, completed, needs_input, step_cap_hit, incomplete, cancelled, errored, timed_out]
       description: |
-        Single discriminator for the run's lifecycle. `needs_input`
+        Single discriminator for the run's lifecycle.
+        `waiting_for_input` means the agent asked its caller a question
+        (the run's `question`) and is waiting, alive, for the answer:
+        send it as a follow-up run on the same agent, and the same run
+        goes on (`running`). A run waits at most 24 hours from its
+        start, then ends `timed_out`. `needs_input`
         means the run completed cleanly but the agent's last
         assistant message included an `ask-questions` tool call;
         answer by sending a follow-up run on the same agent.
@@ -3879,6 +3911,14 @@ components:
     RunSummary:
       type: object
       required: [object, id, agentId, status, prompt, model, steps, startedAt]
+      description: |
+        One stream of the agent, read from that stream alone. A run's
+        later turns (the answer to its question, a nudge to submit its
+        output) are streams of their own, so they list as items of
+        their own (`prompt` is the answer text), and `lastRun` can be
+        one of them. `status` is that stream's own: a run waiting on
+        its question lists as `completed` or `incomplete`. Get Run on
+        the run's id is the one that says how the whole run went.
       properties:
         object: { type: string, const: run }
         id: { type: string }
@@ -3894,9 +3934,8 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id the run actually executed on, whatever the
-            request passed: `origami-max` for every run on Origami's
-            built-in agent model, including one still admitting.
+            Public model id of the level the run executed at. A run
+            from before levels were recorded reports `origami-max`.
         steps: { $ref: '#/components/schemas/RunSteps' }
         startedAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
@@ -3920,9 +3959,8 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id the run actually executed on (`origami-max`
-            for every run on Origami's built-in agent model), not the
-            `model` the caller passed, which does not change the model.
+            Public model id of the level the run executed at: the
+            caller's `model`, `origami-lite` when it passed none.
             Internal ids (e.g. `origami-lobotomized`) are never
             surfaced here.
         focusTableIds:
@@ -3931,7 +3969,7 @@ components:
           description: Echoed verbatim from the request; the run works on the ones it could link.
     RunResponse:
       type: object
-      required: [text, actions, tables, transcript, transcriptTruncated]
+      required: [text, actions, tables, output, transcript, transcriptTruncated]
       description: |
         `null` while `status === "running"`. Once terminal, an object
         with the agent's cleaned prose, the structured workspace
@@ -3972,6 +4010,12 @@ components:
             `focusTableIds` the caller passed). Same shape as a
             single `GET /api/v2/tables/{id}` response. Empty when
             the run touched no tables.
+        output:
+          nullable: true
+          description: |
+            The value the agent submitted for the request's
+            `outputSchema`, matching it; `null` for a run with no
+            schema.
         transcriptTruncated:
           type: boolean
           description: |
@@ -4030,8 +4074,15 @@ components:
       allOf:
         - $ref: '#/components/schemas/RunSummary'
         - type: object
-          required: [workspaceId, request, response, todo]
+          required: [workspaceId, question, request, response, todo]
           properties:
+            question:
+              type: string
+              nullable: true
+              description: |
+                The question the agent asked its caller while `status`
+                is `waiting_for_input`; `null` otherwise. Answer it with
+                a follow-up run on the same agent.
             workspaceId:
               type: string
               format: uuid
