@@ -414,7 +414,9 @@ paths:
         admitted, and the response is that same run, `running` again.
         Its other fields (`model`, `outputSchema`, `focusTableIds`,
         `attachments`) are ignored. While that run is still `running`,
-        this answers `409 AGENT_BUSY`.
+        this answers `409 AGENT_BUSY`; if its question closed before the
+        answer landed (it timed out or the run ended), `409
+        RUN_NOT_WAITING`.
       operationId: sendRun
       deprecated: true
       parameters:
@@ -3971,7 +3973,8 @@ components:
       type: object
       required: [text, actions, tables, output, transcript, transcriptTruncated]
       description: |
-        `null` while `status === "running"`. Once terminal, an object
+        `null` while `status` is `running` or `waiting_for_input`. Once
+        terminal, an object
         with the agent's cleaned prose, the structured workspace
         mutations it performed (`actions[]`), the full TableObjects
         for every touched table (`tables[]`), and (optionally) the
@@ -4661,7 +4664,7 @@ components:
             type: object
             properties:
               error: { type: string }
-              code: { type: string, enum: [AGENT_BUSY] }
+              code: { type: string, enum: [AGENT_BUSY, RUN_NOT_WAITING] }
               currentRun:
                 type: object
                 properties:
