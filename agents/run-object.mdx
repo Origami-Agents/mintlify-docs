@@ -27,7 +27,8 @@ terminal states are reported here, not as HTTP errors.
 | `timed_out` | The run exceeded the wall-clock ceiling. | `response.text` is `null`; send a follow-up run. |
 
 The `Retry-After` header (currently 15 seconds) is present **only** while `status` is
-`running`. Its absence on a response is the signal to stop polling.
+`running`. Its absence means the run is done, except on `waiting_for_input`: that run is
+still alive and waiting for your answer. Every other status is final.
 
 ## Typed output
 
