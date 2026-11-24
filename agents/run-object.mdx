@@ -24,7 +24,7 @@ terminal states are reported here, not as HTTP errors.
 | `step_cap_hit` | The run reached your plan's step limit while still working. | Send a follow-up run to continue, or upgrade for a higher cap. |
 | `cancelled` | You cancelled the run. | Whatever the agent built so far is kept. |
 | `errored` | The run failed. | `response.text` is `null`; retry or contact support. |
-| `timed_out` | The run exceeded the wall-clock ceiling. | `response.text` is `null`; send a follow-up run. |
+| `timed_out` | The run exceeded the wall-clock ceiling, or waited 24 hours from its start for an answer to its question. | `response.text` is `null`; send a follow-up run. |
 
 The `Retry-After` header (currently 15 seconds) is present **only** while `status` is
 `running`. Its absence means the run is done, except on `waiting_for_input`: that run is
