@@ -140,16 +140,21 @@ info:
 
     Agent-loop knobs (`maxSteps`, `timeoutSeconds`) are **not** request
     parameters; they're internal config gated by the plan tier. The
-    chat agent's intrinsic 20-minute `AGENT_TIMEOUT_MS` is the wall-
-    clock ceiling.
+    plan's `maxSteps` caps every run; the agent's own wall-clock limit
+    is the time ceiling.
 
-    | Plan | Default model | Available models | internal maxSteps |
-    | --- | --- | --- | --- |
-    | `starter` | `origami-lite` | `origami-lite` | 30 |
-    | `pro` | `origami-max` | `origami-lite`, `origami-max` | 50 |
-    | `scale` | `origami-max` | `origami-lite`, `origami-max` | 75 |
-    | `ultra` | `origami-max` | `origami-lite`, `origami-max` | 100 |
-    | `enterprise` | `origami-max` | `origami-lite`, `origami-max` | 200 |
+    `model` picks how hard the agent thinks: `origami-lite` (the
+    default, and the cheaper) or `origami-max`, checked against the
+    plan (the columns below). `request.model` reports the level the
+    run used.
+
+    | Plan | Accepted models | internal maxSteps |
+    | --- | --- | --- |
+    | `starter` | `origami-lite` | 30 |
+    | `pro` | `origami-lite`, `origami-max` | 50 |
+    | `scale` | `origami-lite`, `origami-max` | 75 |
+    | `ultra` | `origami-lite`, `origami-max` | 100 |
+    | `enterprise` | `origami-lite`, `origami-max` | 200 |
 
     ## Errors
 
@@ -161,7 +166,8 @@ info:
 
     Non-`completed` terminal *run* states (`timed_out`, `errored`,
     `cancelled`, `needs_input`, `step_cap_hit`) are surfaced on the
-    `Run` object's single `status` field, not as HTTP error codes.
+    `Run` object's single `status` field, not as HTTP error codes, and
+    so is `waiting_for_input`, a run asking its caller a question.
     Callers branch on the run object.
 
     Notable codes beyond the per-endpoint ones: `IDEMPOTENCY_ERROR`
@@ -401,6 +407,16 @@ paths:
         with the initial run object; agent work runs in the
         background. Use this to answer a `needs_input` question; the
         agent picks up from the prior conversation.
+
+        While the agent's last run is `waiting_for_input`, this answers
+        its question instead: `prompt` (at most 4,000 characters) is
+        delivered to that run as its next message, no new run is
+        admitted, and the response is that same run, `running` again.
+        Its other fields (`model`, `outputSchema`, `focusTableIds`,
+        `attachments`) are ignored. While that run is still `running`,
+        this answers `409 AGENT_BUSY`; if its question closed before the
+        answer landed (it timed out or the run ended), `409
+        RUN_NOT_WAITING`.
       operationId: sendRun
       deprecated: true
       parameters:
@@ -1073,7 +1089,8 @@ paths:
         `{ slug: value }` rows (deliberately unstamped); `?format=csv`
         streams CSV. Supports slug-keyed `filters` / `sort` JSON and cursor
         pagination; this endpoint allows `limit` up to **200**. On a
-        campaign's lead table, rows not yet delivered to you are omitted.
+        campaign's lead table, rows not yet delivered to you are omitted. A
+        value an add-on found that you have not bought reads as empty.
       operationId: listRows
       deprecated: true
       x-mint:
@@ -1378,7 +1395,8 @@ paths:
       summary: Fetch one row
       description: |
         A row of a campaign's lead table that has not been delivered to you
-        yet returns `404 ROW_NOT_FOUND`.
+        yet returns `404 ROW_NOT_FOUND`. A value an add-on found that you
+        have not bought reads as empty.
       operationId: getRow
       deprecated: true
       x-mint:
@@ -1400,7 +1418,8 @@ paths:
       summary: Fetch one cell
       description: |
         A cell of a campaign lead-table row that has not been delivered to
-        you yet returns `404 ROW_NOT_FOUND`.
+        you yet returns `404 ROW_NOT_FOUND`. A value an add-on found that you
+        have not bought reads as empty.
       operationId: getCell
       deprecated: true
       x-mint:
@@ -1966,8 +1985,10 @@ paths:
 
         Turning refill **on** on an active campaign arms the daily sourcing
         task and clears a prior Origami auto-stop. It clears a billing pause
-        (out of credits / spend limit) too, but funding is what resumes
-        sourcing: an unfunded account re-pauses on the next run. Turning it
+        (out of credits, a declined card, or a used-up project budget) too,
+        but sourcing resumes only once the account can pay: an unfunded
+        account, or a project whose budget is still used up, re-pauses on the
+        next run. Turning it
         **off** unarms the task. The intent flag survives pause and draft;
         the task only runs while the campaign is `active`.
 
@@ -2243,6 +2264,7 @@ paths:
                       dryRun: { type: boolean, const: true }
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
+        '403': { description: "PLAN_LIMIT_REACHED: the plan's number of the account's own campaigns is already running (campaigns Autopilot created do not count), so nothing was launched; `details` names the limit, the plan and the plan that lifts it, plus `campaign_names` for the running campaigns." }
         '404': { description: CAMPAIGN_NOT_FOUND. }
         '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
   /campaigns/{campaignId}/send:
@@ -2279,6 +2301,7 @@ paths:
                       dryRun: { type: boolean, const: true }
                       campaignId: { type: string, format: uuid }
                       wouldLaunch: { type: boolean, const: true }
+        '403': { description: "PLAN_LIMIT_REACHED: the plan's number of the account's own campaigns is already running (campaigns Autopilot created do not count), so nothing was launched; `details` names the limit, the plan and the plan that lifts it, plus `campaign_names` for the running campaigns." }
         '404': { description: CAMPAIGN_NOT_FOUND. }
         '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
   /campaigns/{campaignId}/pause:
@@ -2353,6 +2376,7 @@ paths:
                       dryRun: { type: boolean, const: true }
                       campaignId: { type: string, format: uuid }
                       wouldResume: { type: boolean }
+        '403': { description: "PLAN_LIMIT_REACHED: the plan's number of the account's own campaigns is already running (campaigns Autopilot created do not count), so nothing was resumed; `details` names the limit, the plan and the plan that lifts it, plus `campaign_names` for the running campaigns." }
         '404': { description: CAMPAIGN_NOT_FOUND. }
         '409': { description: 'NO_SENDING_ACCOUNT: a required channel has no active sending account. Details carry `missingChannels` (array of channel names); connect the accounts, then retry. NO_MESSAGING: the campaign''s people have no messages written and nothing will write them; write the messaging, then retry.' }
 
@@ -2616,7 +2640,8 @@ paths:
         `monthlyCredits` is the optional per-project budget cap in
         credits; `null` or omitted means uncapped. A child org's key
         cannot create projects (nesting is one level deep) →
-        `400 PARENT_REQUIRED`.
+        `400 PARENT_REQUIRED`. An account whose plan limits its
+        projects and has none left → `403 PLAN_LIMIT_REACHED`.
       operationId: createProject
       deprecated: true
       x-mint:
@@ -2646,6 +2671,8 @@ paths:
               schema: { $ref: '#/components/schemas/Project' }
         '400':
           description: "VALIDATION_ERROR: bad body; or PARENT_REQUIRED: a child org's key cannot create projects."
+        '403':
+          description: "PLAN_LIMIT_REACHED: the account's plan includes no more projects; `details` names the limit, the plan and the plan that lifts it."
   /projects/{projectId}:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
@@ -3045,10 +3072,13 @@ components:
           maxItems: 50
           default: []
           description: |
-            Table ids to focus the agent on. With a legacy workspace
-            `workspaceId`, every id must belong to that workspace; with
-            a session container or no `workspaceId`, any org-owned
-            table qualifies (it is linked to the agent's session).
+            Table ids for the agent to work on. Each is linked to the
+            agent's session and named to the agent, so the run works on
+            those tables rather than building new ones. A table that
+            fails to link is left out of the run. With a legacy
+            workspace `workspaceId`, every id must belong to that
+            workspace; with a session container or no `workspaceId`, any
+            org-owned table qualifies.
         attachments:
           type: array
           maxItems: 20
@@ -3067,15 +3097,26 @@ components:
         model:
           type: string
           enum: [origami-lite, origami-max]
+          default: origami-lite
           description: |
-            Public model id. Plan-aware default: highest model unlocked
-            on the caller's plan (`origami-lite` for `starter`,
-            `origami-max` for `pro`+). Resolved server-side to an
-            internal chat-agent model; the response's `request.model`
-            echoes the public id (`origami-lite` or `origami-max`),
-            never an internal name. Legacy aliases `origami-fast` and
-            `origami-mid` are still accepted and normalized to
+            How hard the agent thinks for this run: `origami-lite` (the
+            default, and the cheaper) or `origami-max` (needs `pro`+;
+            `400 MODEL_NOT_AVAILABLE` otherwise). The run's
+            `request.model` reports the level it ran at. Legacy aliases
+            `origami-fast` and `origami-mid` are accepted as
             `origami-lite`.
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: |
+            A JSON Schema object (`"type": "object"` at the top) the
+            run's result must match. The agent submits a value that
+            matches it, and the run's `response.output` carries it. A
+            run with a schema completes only once it has submitted a
+            valid value; one that never does ends `errored`. Objects are
+            closed (`additionalProperties: false`) when stored; keywords
+            the server cannot enforce (`pattern`, `anyOf`, `$ref`) are
+            refused with `400 VALIDATION_ERROR`.
     UploadedRunAttachment:
       oneOf:
         - type: object
@@ -3099,6 +3140,7 @@ components:
           items: { type: string, format: uuid }
           maxItems: 50
           default: []
+          description: See CreateAgentRequest.focusTableIds.
         attachments:
           type: array
           maxItems: 20
@@ -3108,6 +3150,12 @@ components:
         model:
           type: string
           enum: [origami-lite, origami-max]
+          default: origami-lite
+          description: See CreateAgentRequest.model.
+        outputSchema:
+          type: object
+          additionalProperties: true
+          description: See CreateAgentRequest.outputSchema.
     Workspace:
       type: object
       required: [object, id, name, createdByApi, url, createdAt]
@@ -3843,22 +3891,36 @@ components:
                 - $ref: '#/components/schemas/RunSummary'
     RunStatus:
       type: string
-      enum: [running, completed, needs_input, step_cap_hit, incomplete, cancelled, errored, timed_out]
+      enum: [running, waiting_for_input, completed, needs_input, step_cap_hit, incomplete, cancelled, errored, timed_out]
       description: |
-        Single discriminator for the run's lifecycle. `needs_input`
+        Single discriminator for the run's lifecycle.
+        `waiting_for_input` means the agent asked its caller a question
+        (the run's `question`) and is waiting, alive, for the answer:
+        send it as a follow-up run on the same agent, and the same run
+        goes on (`running`). A run waits at most 24 hours from its
+        start, then ends `timed_out`. `needs_input`
         means the run completed cleanly but the agent's last
         assistant message included an `ask-questions` tool call;
         answer by sending a follow-up run on the same agent.
-        `incomplete` means the model finished the step but the AI
-        SDK could not parse a tool call it tried to emit (or it hit
-        the output-token cap mid-tool-call), so the multi-step loop
-        ended without the work being done; recoverable by sending
-        a follow-up run on the same agent. Deploy restarts are
+        `incomplete` means the model stopped while still calling
+        tools, short of the plan's step limit (a tool call it could
+        not emit, or the output-token cap mid-call), so the work was
+        not done; recoverable by sending a follow-up run on the same
+        agent. `step_cap_hit` means the run reached the plan's step
+        limit while still working. Deploy restarts are
         auto-followed server-side, so callers never observe a
         `superseded` value.
     RunSummary:
       type: object
       required: [object, id, agentId, status, prompt, model, steps, startedAt]
+      description: |
+        One stream of the agent, read from that stream alone. A run's
+        later turns (the answer to its question, a nudge to submit its
+        output) are streams of their own, so they list as items of
+        their own (`prompt` is the answer text), and `lastRun` can be
+        one of them. `status` is that stream's own: a run waiting on
+        its question lists as `completed` or `incomplete`. Get Run on
+        the run's id is the one that says how the whole run went.
       properties:
         object: { type: string, const: run }
         id: { type: string }
@@ -3874,9 +3936,8 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id the run actually executed on. When the run
-            has no assistant message yet (still admitting), falls back
-            to the plan default.
+            Public model id of the level the run executed at. A run
+            from before levels were recorded reports `origami-max`.
         steps: { $ref: '#/components/schemas/RunSteps' }
         startedAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time, nullable: true }
@@ -3885,9 +3946,9 @@ components:
       required: [completed, max]
       description: |
         Agent step progress. `completed` is the number of multi-step
-        loop iterations the agent has actually executed; `max` is the
-        plan-determined hard cap. Once `completed === max`, the run's
-        `status` becomes `step_cap_hit`.
+        loop iterations recorded for the run; `max` is the
+        plan-determined hard cap the run stops at. A run that reaches
+        it while still working ends with `status: step_cap_hit`.
       properties:
         completed: { type: integer, minimum: 0 }
         max: { type: integer, minimum: 1 }
@@ -3900,20 +3961,20 @@ components:
           type: string
           enum: [origami-lite, origami-max]
           description: |
-            Public model id: `origami-lite` or `origami-max`. Echoes
-            the caller's request (after legacy-alias normalization)
-            or the plan default when the request omitted `model`.
-            Internal chat-agent ids (e.g. `origami-lobotomized`) are
-            never surfaced here.
+            Public model id of the level the run executed at: the
+            caller's `model`, `origami-lite` when it passed none.
+            Internal ids (e.g. `origami-lobotomized`) are never
+            surfaced here.
         focusTableIds:
           type: array
           items: { type: string, format: uuid }
-          description: Echoed verbatim from the request.
+          description: Echoed verbatim from the request; the run works on the ones it could link.
     RunResponse:
       type: object
-      required: [text, actions, tables, transcript, transcriptTruncated]
+      required: [text, actions, tables, output, transcript, transcriptTruncated]
       description: |
-        `null` while `status === "running"`. Once terminal, an object
+        `null` while `status` is `running` or `waiting_for_input`. Once
+        terminal, an object
         with the agent's cleaned prose, the structured workspace
         mutations it performed (`actions[]`), the full TableObjects
         for every touched table (`tables[]`), and (optionally) the
@@ -3952,6 +4013,12 @@ components:
             `focusTableIds` the caller passed). Same shape as a
             single `GET /api/v2/tables/{id}` response. Empty when
             the run touched no tables.
+        output:
+          nullable: true
+          description: |
+            The value the agent submitted for the request's
+            `outputSchema`, matching it; `null` for a run with no
+            schema.
         transcriptTruncated:
           type: boolean
           description: |
@@ -4010,8 +4077,15 @@ components:
       allOf:
         - $ref: '#/components/schemas/RunSummary'
         - type: object
-          required: [workspaceId, request, response, todo]
+          required: [workspaceId, question, request, response, todo]
           properties:
+            question:
+              type: string
+              nullable: true
+              description: |
+                The question the agent asked its caller while `status`
+                is `waiting_for_input`; `null` otherwise. Answer it with
+                a follow-up run on the same agent.
             workspaceId:
               type: string
               format: uuid
@@ -4112,10 +4186,15 @@ components:
           items: { type: string }
           description: |
             Answers the agent proposed, in the order it listed them.
-            For `single-choice` these are the agent's options; for
-            `confirm` it is the single-entry array `["Confirm"]`. This
-            is NOT a hard menu; the caller may always reply with any
-            free-text via the follow-up run (see `freeformOption`).
+            For `single-choice` these are the agent's options. For
+            `confirm` it is `["Confirm"]`, or, when the question gates an
+            act on the user's go-ahead, the single button's own words
+            (for example `["Approve and send"]`); sending those words back
+            is the same as pressing that button. This is NOT a hard menu;
+            the caller may always reply with any free-text via the
+            follow-up run (see `freeformOption`), and a go-ahead given in
+            other words counts too, since the act quotes the reply that was
+            sent.
             The field is here so a host LLM can bias its follow-up
             `prompt` toward what the agent expected.
         freeformOption:
@@ -4585,7 +4664,7 @@ components:
             type: object
             properties:
               error: { type: string }
-              code: { type: string, enum: [AGENT_BUSY] }
+              code: { type: string, enum: [AGENT_BUSY, RUN_NOT_WAITING] }
               currentRun:
                 type: object
                 properties:

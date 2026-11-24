@@ -98,9 +98,23 @@ When `status` is `needs_input`, `needs_input` is one of:
 
 - **`questions`** — answer with
   [`POST /jobs/{job_id}/input`](/v3/reference/jobs-input)
-  `{ "answers": ["..."] }`. The same Job id resumes.
+  `{ "answers": ["..."] }`. The same Job id resumes. On an agent Job the
+  answer goes to the waiting run, which carries on where it stopped. An
+  unanswered question expires 24 hours after the run started, and the Job
+  fails with `AGENT_TIMED_OUT`.
 - **`handoff`** — a human step (for example Stripe SCA). Send the user the URL.
   Origami resumes the Job itself after the in-app step completes.
+
+## Agent Jobs: level and typed output
+
+Operations that run the agent take two optional fields:
+
+- **`model`**: `origami-lite` (the default, and cheaper) or `origami-max`
+  (Pro plan and up; `400 MODEL_NOT_AVAILABLE` otherwise).
+- **`output_schema`**: a JSON Schema object (`"type": "object"` at the top).
+  The agent submits a value matching it, and the Job's `result.output`
+  carries it. A Job with a schema succeeds only once that value is
+  submitted; one that never is fails with `AGENT_NO_OUTPUT`.
 
 ## Cancel
 
@@ -121,6 +135,7 @@ Failed AGENT Jobs keep a retry signal on `error.code`:
 | `AGENT_STEP_CAP` | Yes |
 | `AGENT_TIMED_OUT` | Yes |
 | `AGENT_ERRORED` | No |
+| `AGENT_NO_OUTPUT` | Yes — the run ended without submitting its `output_schema` value |
 
 Retryable means re-running the same call on the same resources is reasonable.
 Don't create a fresh list and pay for the lookups twice.

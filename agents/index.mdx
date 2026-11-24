@@ -31,9 +31,13 @@ is no longer `running`, honoring the `Retry-After` header (15 seconds) while it 
 typically take 1–5 minutes. See the [run object](/agents/run-object) for the full response
 shape.
 
-Pick a model per run with the `model` field — `origami-lite` or `origami-max`. The default
-is the highest model your plan unlocks (`origami-lite` on starter, `origami-max` on pro and
-above).
+`model` picks how hard the agent thinks: `origami-lite` (the default, and cheaper) or
+`origami-max` (Pro plan and up). The run's `request.model` reports the level it ran at.
+
+Pass `outputSchema` (a JSON Schema object) to get a typed result back: the run's
+`response.output` carries a value that matches it. If the agent needs a decision from you,
+the run waits with `status: "waiting_for_input"` and a `question` — see the
+[run object](/agents/run-object#questions).
 
 ## Start here
 

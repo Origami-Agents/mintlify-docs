@@ -392,16 +392,15 @@ def expand_info_description(text: str) -> str:
     """Replace the one-paragraph info.description with Mintlify-oriented copy."""
     if "The Origami **v3 API** is the current public surface" in text:
         return text
-    old = """  description: "The Origami v3 public API: three sections (Account, Leads, Send)
-    plus the shared Jobs resource. One operation catalog drives HTTP, the hosted
-    MCP server, and the origami CLI. Wire fields are snake_case; unknown request
-    fields are rejected with 400 VALIDATION_ERROR. v1 and v2 remain available
-    but deprecated for new integrations."
-"""
+    old_match = re.search(
+        r'^  description: "The Origami v3 public API:.*?integrations\."\n',
+        text,
+        flags=re.M | re.S,
+    )
     new = """  description: |
     The Origami **v3 API** is the current public surface: named, typed
-    operations in three sections (**Account**, **Leads**, **Send**) plus
-    one shared **Job** resource for all async work. The same catalog
+    operations in five sections (**Account**, **Leads**, **Send**,
+    **Contacts**, and read-only **Content**) plus one shared **Job** resource for all async work. The same catalog
     drives HTTP (`https://origami.chat/api/v3`), the hosted MCP server
     (`https://origami.chat/mcp`), and the `origami` CLI.
 
@@ -431,9 +430,9 @@ def expand_info_description(text: str) -> str:
     v1 and v2 remain available but are deprecated for new integrations.
     See the v2 → v3 migration guide for the 1:1 flow map.
 """
-    if old not in text:
+    if not old_match:
         raise SystemExit("info.description block not found — spec format changed")
-    return text.replace(old, new, 1)
+    return text[: old_match.start()] + new + text[old_match.end() :]
 
 
 def print_nav(doc: dict) -> None:

@@ -193,7 +193,8 @@ paths:
 
         Rows are returned as flat objects with column **slugs** as keys. The response
         includes a `columns` map (slug → display name) so you can resolve human-readable
-        names. Cells with no value or in an errored state are omitted.
+        names. Cells with no value or in an errored state are omitted, and so is a
+        value an add-on found that you have not bought.
 
         Supports CSV export via the `format` query parameter.
       tags: [Tables]
@@ -483,7 +484,8 @@ paths:
         limited to **100 rows** per batch (see `POST /tables/{tableId}/rows`), so
         result payloads stay bounded; if that limit increases in the future, pagination
         may be introduced for this field. On a table whose rows must be bought
-        before they can be seen in the app, rows not yet bought are left out, and
+        before they can be seen in the app, rows not yet bought are left out (and a
+        value an add-on found that you have not bought is left out of its row), and
         on a campaign's lead table, rows not yet delivered to you are left out too.
 
         **Polling strategy:** For fast results, poll every 2-5 seconds. For background

@@ -43,6 +43,10 @@ done
 echo "$RESP" | jq .
 ```
 
+If the loop stops on `waiting_for_input`, the run is not finished: the agent asked you
+something. Read its `question` and answer with a follow-up run on the same agent (see
+[Questions](/agents/run-object#questions)); the same run carries on.
+
 ## Read the response
 
 When the run finishes, check two things on the run object:
@@ -70,7 +74,8 @@ When the run finishes, check two things on the run object:
 
 To answer a question or ask for more, send another run to the same agent with
 [`POST /api/v2/agents/{id}/runs`](/agents/reference/send-run). It keeps the same workspace
-and conversation, so just say what's next.
+and conversation, so just say what's next. Pass `focusTableIds` to point the run at the
+table it should work on.
 
 ```bash
 curl -X POST https://origami.chat/api/v2/agents/$AGENT_ID/runs \
